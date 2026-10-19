@@ -1,0 +1,656 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SNCF Transilien Challenge — Xuan</title>
+<meta name="description" content="Case study: predicting train wait-time deviations for SNCF Transilien. Time-based validation, LightGBM L1, multi-seed ensembles. Rank 54 / 665.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ink: #2B2B30;
+    --ink-2: #4A4A52;
+    --body: #5E5E66;
+    --muted: #74747C;
+    --heading: #8E8E94;
+    --line: #ECECEF;
+    --chip: #F2F2F4;
+    --hero-bg: #F4F4F5;
+    --pink: #FBE3E3;
+    --blue: #3567A8;
+    --rose: #C46A78;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body { margin: 0; background: #FFFFFF; color: var(--body); font-family: 'Work Sans', system-ui, sans-serif; font-size: 16px; line-height: 1.7; }
+  a { color: var(--ink); }
+  a:hover { color: #000; }
+  strong { color: var(--ink); font-weight: 600; }
+  code { font-family: 'JetBrains Mono', monospace; font-size: 0.88em; background: var(--chip); padding: 1px 6px; border-radius: 4px; color: var(--ink); }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 40px; }
+
+  /* top bar */
+  .topbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; padding: 28px 0; font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.22em; }
+  .topbar a { text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; color: var(--ink); }
+
+  /* header */
+  header.case { background: var(--hero-bg); }
+  header.case .wrap { padding-top: 64px; padding-bottom: 72px; display: flex; flex-direction: column; gap: 24px; }
+  .eyebrow { font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.2em; color: var(--muted); }
+  h1 { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 60px; line-height: 1.15; color: var(--heading); max-width: 860px; }
+  .lede { margin: 0; font-size: 19px; line-height: 1.65; color: var(--ink-2); max-width: 760px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-top: 16px; }
+  .kpi { background: #FFFFFF; padding: 22px 24px; display: flex; flex-direction: column; gap: 4px; }
+  .kpi.accent { background: var(--pink); }
+  .kpi-value { font-family: 'Poppins', sans-serif; font-size: 34px; font-weight: 600; color: var(--ink); line-height: 1.2; }
+  .kpi-label { font-size: 14px; color: var(--body); line-height: 1.45; }
+
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px 32px; margin-top: 8px; }
+  .fact-k { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.22em; color: var(--muted); }
+  .fact-v { font-size: 15px; color: var(--ink-2); line-height: 1.55; }
+
+  /* table of contents */
+  .toc { padding: 48px 0 8px; display: flex; flex-wrap: wrap; gap: 10px; }
+  .toc a { font-size: 13px; text-decoration: none; padding: 8px 14px; border-radius: 999px; background: var(--chip); color: var(--body); min-height: 36px; display: inline-flex; align-items: center; }
+  .toc a:hover { background: #E7E7EA; color: var(--ink); }
+
+  /* sections */
+  section.block { padding: 56px 0 8px; border-bottom: 1px solid var(--line); padding-bottom: 48px; }
+  section.block:last-of-type { border-bottom: 0; }
+  .num { font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.2em; color: var(--muted); margin-bottom: 8px; }
+  h2 { margin: 0 0 20px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 40px; line-height: 1.2; color: var(--heading); }
+  h3 { margin: 32px 0 10px; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 20px; color: var(--ink-2); }
+  p { margin: 0 0 16px; max-width: 780px; }
+  ul, ol { margin: 0 0 16px; padding-left: 22px; max-width: 780px; }
+  li { margin-bottom: 6px; }
+
+  .note { background: var(--pink); padding: 18px 22px; margin: 20px 0; max-width: 780px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note-k { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.22em; color: var(--ink-2); margin-bottom: 6px; }
+  .aside-box { background: var(--hero-bg); padding: 18px 22px; margin: 20px 0; max-width: 780px; }
+  .aside-box p:last-child { margin-bottom: 0; }
+
+  /* tables */
+  .table-wrap { overflow-x: auto; margin: 16px 0 24px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; min-width: 520px; }
+  th { text-align: left; font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid #DDDDE2; white-space: nowrap; }
+  td { padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--body); vertical-align: top; line-height: 1.5; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.best td { color: var(--ink); font-weight: 600; }
+  .tag { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; white-space: nowrap; }
+  .tag.keep { background: #E3ECF7; color: #24497A; }
+  .tag.drop { background: #F2F2F4; color: #5E5E66; }
+  .tag.fail { background: #F8E1E4; color: #8A3442; }
+
+  /* charts */
+  figure { margin: 24px 0 32px; }
+  .chart-box { position: relative; height: 340px; }
+  .chart-box.tall { height: 420px; }
+  figcaption { font-size: 13px; color: var(--muted); margin-top: 10px; max-width: 780px; line-height: 1.55; }
+
+  /* steps */
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin: 20px 0; }
+  .step { background: var(--hero-bg); padding: 20px 22px; display: flex; flex-direction: column; gap: 6px; }
+  .step-n { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.18em; color: var(--muted); }
+  .step-t { font-family: 'Poppins', sans-serif; font-size: 17px; font-weight: 600; color: var(--ink-2); }
+  .step-d { font-size: 14px; line-height: 1.55; }
+  .step-r { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--ink); margin-top: 4px; }
+
+  .lessons { counter-reset: l; list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; max-width: none; }
+  .lessons li { counter-increment: l; background: #FFFFFF; border: 1px solid var(--line); padding: 20px 22px; margin: 0; }
+  .lessons li::before { content: counter(l, decimal-leading-zero); display: block; font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.18em; color: var(--muted); margin-bottom: 6px; }
+
+  footer { background: var(--hero-bg); margin-top: 48px; }
+  footer .wrap { padding-top: 40px; padding-bottom: 40px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+  .back-btn { display: inline-flex; align-items: center; min-height: 64px; padding: 0 26px; background: var(--pink); color: var(--ink); font-family: 'Poppins', sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 0.22em; text-decoration: none; }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 0 16px; }
+    h1 { font-size: 40px; }
+    h2 { font-size: 30px; }
+    header.case .wrap { padding-top: 40px; padding-bottom: 48px; }
+    .chart-box { height: 280px; }
+    .chart-box.tall { height: 460px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <a href="index.html#projects">← BACK</a>
+    <a href="index.html">XUAN</a>
+  </div>
+</div>
+
+<header class="case">
+  <div class="wrap">
+    <div class="eyebrow">CASE STUDY · MACHINE LEARNING COMPETITION</div>
+    <h1>SNCF Transilien Wait-Time Prediction</h1>
+    <p class="lede">Predicting, two stops in advance, how far a suburban train’s actual waiting time at a station will deviate from the time shown on the platform screen — and building a validation setup reliable enough to tell a real improvement of 0.001 from noise.</p>
+
+    <div class="kpis">
+      <div class="kpi accent">
+        <div class="kpi-value">54 / 665</div>
+        <div class="kpi-label">Final leaderboard rank (top ~8%)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value">0.6516</div>
+        <div class="kpi-label">Final leaderboard MAE (1st place: 0.6274)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value">−12.8%</div>
+        <div class="kpi-label">MAE vs. my first submission (0.747 → 0.6516)</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-value">7</div>
+        <div class="kpi-label">Submissions, each validated locally first</div>
+      </div>
+    </div>
+
+    <div class="facts">
+      <div><div class="fact-k">TASK</div><div class="fact-v">Regression — predict an integer deviation in minutes</div></div>
+      <div><div class="fact-k">METRIC</div><div class="fact-v">MAE (mean absolute error), lower is better</div></div>
+      <div><div class="fact-k">DATA</div><div class="fact-v">667,264 training rows · 20,657 test rows · 84 stations</div></div>
+      <div><div class="fact-k">TOOLS</div><div class="fact-v">Python · pandas · scikit-learn · LightGBM · CatBoost · Kaggle Notebooks</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <nav class="toc" aria-label="Sections">
+    <a href="#problem">Problem</a>
+    <a href="#roadmap">Roadmap</a>
+    <a href="#eda">Data exploration</a>
+    <a href="#validation">Validation</a>
+    <a href="#modelling">Modelling</a>
+    <a href="#failures">Failed experiments</a>
+    <a href="#ruler">A better ruler</a>
+    <a href="#experiments">8 experiments</a>
+    <a href="#results">Submissions</a>
+    <a href="#lessons">Lessons</a>
+  </nav>
+
+  <!-- 01 PROBLEM -->
+  <section class="block" id="problem">
+    <div class="num">01</div>
+    <h2>The problem</h2>
+    <p>Transilien SNCF Voyageurs runs the suburban rail network of Île-de-France: more than 6,200 trains and about 3.4 million passengers a day. Platform screens announce how many minutes remain until the next train. The goal of the challenge is to make that estimate more accurate.</p>
+
+    <h3>What we predict: p0q0</h3>
+    <p><strong>p0q0 = theoretical waiting time − actual waiting time</strong>, as an integer number of minutes. A negative value means passengers waited longer than announced (the train was late); a positive value means they waited less; zero means the screen was right.</p>
+    <div class="aside-box"><p><strong>Example.</strong> The screen shows 3 minutes, the passenger actually waits 5 minutes → p0q0 = 3 − 5 = −2.</p></div>
+
+    <h3>Inputs</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Variable</th><th>Meaning</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td><code>train</code></td><td>Train number (unique per day)</td><td>Context</td></tr>
+          <tr><td><code>gare</code></td><td>Station ID (anonymised)</td><td>Context</td></tr>
+          <tr><td><code>date</code></td><td>Date</td><td>Context</td></tr>
+          <tr><td><code>arret</code></td><td>Position of the stop along the train’s route</td><td>Context</td></tr>
+          <tr><td><code>p0q2 / p0q3 / p0q4</code></td><td>Deviation of the <strong>same train</strong> 2, 3 and 4 stations earlier</td><td>History</td></tr>
+          <tr><td><code>p2q0 / p3q0 / p4q0</code></td><td>Deviation of the 2nd, 3rd and 4th <strong>previous trains</strong> at the same station</td><td>History</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Real-time constraint:</strong> there is no <code>p0q1</code> or <code>p1q0</code>. The prediction must be made two stations ahead, when the most recent stop has not happened yet.</p>
+    <p><strong>Why the metric matters:</strong> MAE averages absolute errors without squaring them, so it is far less sensitive to extreme values than MSE. Under MAE the best constant prediction is the <em>median</em>, not the mean — a fact that shaped most of the decisions below.</p>
+  </section>
+
+  <!-- 02 ROADMAP -->
+  <section class="block" id="roadmap">
+    <div class="num">02</div>
+    <h2>Roadmap</h2>
+    <p>I worked “foundations first”: every step had one purpose, and the validation score decided whether a change was kept. One change at a time, local validation before every submission, and failures documented as carefully as successes.</p>
+    <div class="steps">
+      <div class="step"><div class="step-n">STEP 1</div><div class="step-t">Explore the data</div><div class="step-d">Target distribution, date structure, which columns are usable.</div><div class="step-r">Constant baseline 0.894</div></div>
+      <div class="step"><div class="step-n">STEP 2</div><div class="step-t">Validation scheme</div><div class="step-d">Split by whole days in time order: predict the future from the past.</div><div class="step-r">Reliable local score</div></div>
+      <div class="step"><div class="step-n">STEP 3</div><div class="step-t">Baseline</div><div class="step-d">Random forest, predictions rounded to integers.</div><div class="step-r">Local 0.712 · LB 0.747</div></div>
+      <div class="step"><div class="step-n">STEP 4</div><div class="step-t">Feature engineering</div><div class="step-d">Aggregates, trends and station statistics.</div><div class="step-r">Local 0.681</div></div>
+      <div class="step"><div class="step-n">STEP 5</div><div class="step-t">LightGBM, L1 objective</div><div class="step-d">Optimise MAE directly instead of squared error.</div><div class="step-r">Local 0.661 · LB 0.680</div></div>
+      <div class="step"><div class="step-n">STEP 6</div><div class="step-t">Tuning</div><div class="step-d">Larger trees for a large dataset with complex interactions.</div><div class="step-r">Local 0.631 · LB 0.659</div></div>
+      <div class="step"><div class="step-n">STEP 7</div><div class="step-t">Seed ensemble</div><div class="step-d">Add randomness, average 5 models, then round.</div><div class="step-r">Local 0.627 · LB 0.653</div></div>
+      <div class="step"><div class="step-n">STEP 8</div><div class="step-t">Multi-window validation</div><div class="step-d">Three expanding windows; measure seed noise first.</div><div class="step-r">Baseline 0.6495 · noise ≈ 0.0006</div></div>
+      <div class="step"><div class="step-n">STEP 9</div><div class="step-t">Experiments with the new ruler</div><div class="step-d">8 controlled experiments, 3 kept, 10-seed ensemble.</div><div class="step-r">Local 0.6455 · LB 0.6516</div></div>
+    </div>
+  </section>
+
+  <!-- 03 EDA -->
+  <section class="block" id="eda">
+    <div class="num">03</div>
+    <h2>Data exploration</h2>
+    <p>The aim was not to draw many plots, but to answer the questions that change later decisions.</p>
+
+    <h3>Target distribution</h3>
+    <p>The median of p0q0 is <strong>0</strong> and <strong>42.7%</strong> of values are exactly 0. The mean is −0.16, but the range is very asymmetric: from −160 (severe delays) to +15. Concentrated around zero with a long negative tail — a distribution better described by its median.</p>
+
+    <h3>Constant baseline: mean or median?</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Constant prediction</th><th class="n">Value</th><th class="n">Training MAE</th></tr></thead>
+        <tbody>
+          <tr><td>Mean</td><td class="n">−0.16</td><td class="n">0.960</td></tr>
+          <tr class="best"><td>Median</td><td class="n">0</td><td class="n">0.894</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>This sets the floor any model must beat, and it already says the model should optimise absolute error rather than the default squared error.</p>
+
+    <h3>Date structure</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Training set</th><th>Test set</th></tr></thead>
+        <tbody>
+          <tr><td>Date range</td><td>2023-04-03 → 2023-11-10</td><td>2023-11-13 → 2023-12-22</td></tr>
+          <tr><td>Distinct days</td><td>91</td><td>24</td></tr>
+          <tr><td>Rows per day</td><td>≈ 7,333</td><td>≈ 861 (57 to 1,275)</td></tr>
+          <tr><td>Weekdays</td><td>Weekdays only</td><td>Weekdays only</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>All test dates come <strong>after</strong> all training dates. This single fact determined the validation scheme.</p>
+
+    <h3>Which categories are “known” at test time?</h3>
+    <p>99.98% of test train numbers never appear in training — train IDs are re-issued daily, so <code>train</code> cannot be a feature. All 84 stations, on the other hand, are present in both sets, so <code>gare</code> is safe to use.</p>
+
+    <h3>A rejected hypothesis</h3>
+    <p>The first trains of the day cannot have “previous trains”, yet the data has no missing values. I suspected missing values were filled with 0. But 0 appears in 43.8% of <code>p2q0</code> versus 42.7% of the target — no sign of mass zero-filling, so the hypothesis was dropped.</p>
+  </section>
+
+  <!-- 04 VALIDATION -->
+  <section class="block" id="validation">
+    <div class="num">04</div>
+    <h2>Validation scheme</h2>
+    <p>The test set has no labels and submissions are limited, so I needed a local “mock exam”. A random split would be wrong: rows from the same day share the same disruptions (a morning incident delays almost every train). Splitting a day across train and validation lets the model see that day’s chaos during training and inflates the score — <strong>data leakage</strong>.</p>
+    <p>Instead, I split <strong>by whole days in time order</strong>: x and y are first joined so they move together, sorted by date with a stable sort, and cut at the day containing the 80th percentile row.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Part</th><th>Dates</th><th class="n">Rows</th></tr></thead>
+        <tbody>
+          <tr><td>Training</td><td>2023-04-03 → 2023-10-02</td><td class="n">529,328</td></tr>
+          <tr><td>Validation</td><td>2023-10-03 → 2023-11-10 (≈ 5.5 weeks)</td><td class="n">137,936</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The validation set reproduces the test set’s structure: 100% of its train numbers are unseen (99.98% in the test set). Across later submissions, local and leaderboard scores moved in the same direction — with one instructive exception (section 06).</p>
+    <div class="note"><div class="note-k">PITFALL AVOIDED</div><p>Sorting x without y would silently pair every row with someone else’s answer — no error, just a wrong model. Joining y to x before sorting prevents it.</p></div>
+  </section>
+
+  <!-- 05 MODELLING -->
+  <section class="block" id="modelling">
+    <div class="num">05</div>
+    <h2>Modelling</h2>
+
+    <h3>Baseline: random forest — and why rounding helps</h3>
+    <p>Features: <code>arret</code>, the six p/q columns, a label-encoded station (one shared, sorted dictionary over train ∪ test so each station always gets the same code) and the day of week. <code>train</code> and <code>date</code> were excluded: unseen IDs, and future dates a tree cannot extrapolate to.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Method</th><th class="n">Validation MAE</th></tr></thead>
+        <tbody>
+          <tr><td>Predict 0 everywhere</td><td class="n">0.873</td></tr>
+          <tr><td>Random forest (100 trees, depth 15)</td><td class="n">0.764</td></tr>
+          <tr class="best"><td>Random forest + rounding</td><td class="n">0.712</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Rounding cut MAE by 7%. A random forest minimises squared error and outputs means (e.g. 0.25), but the target is an integer concentrated at 0, so its median is usually an integer. Rounding pushes predictions toward that median. It is a patch for a <strong>loss/metric mismatch</strong>; the real fix came in step 5. First submission (v0): leaderboard <strong>0.747</strong>, rank 479.</p>
+
+    <h3>Feature engineering</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Feature</th><th>Definition</th><th>Intuition</th></tr></thead>
+        <tbody>
+          <tr><td><code>train_mean</code></td><td>(p0q2 + p0q3 + p0q4) / 3</td><td>Average recent deviation of this train</td></tr>
+          <tr><td><code>gare_mean</code></td><td>(p2q0 + p3q0 + p4q0) / 3</td><td>Average recent deviation at this station</td></tr>
+          <tr><td><code>train_trend</code></td><td>p0q2 − p0q4</td><td>Is this train recovering or falling further behind?</td></tr>
+          <tr><td><code>gare_trend</code></td><td>p2q0 − p4q0</td><td>Is the station getting better or worse?</td></tr>
+          <tr><td><code>gare_median</code>, <code>gare_target_mean</code></td><td>Target median / mean per station, training part only</td><td>Each station’s “temperament”</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Aggregates and trends: 0.712 → 0.693. Station target statistics: → 0.682 → 0.681, with diminishing returns since the station ID was already a feature. Target statistics are computed on the training part only — including validation labels would leak the answer.</p>
+
+    <h3>LightGBM with an L1 objective</h3>
+    <p>Twice the data had said the competition rewards predicting the median. Gradient boosting with <code>objective = "l1"</code> optimises MAE directly; early stopping (100 rounds of patience) picks the number of trees. Changing only the loss — 0.681 → <strong>0.661</strong> — beat all feature engineering combined. For the full-data submission I used a fixed number of rounds scaled to the extra data and checked that test columns matched training columns in name <em>and order</em>. Submission v1: leaderboard <strong>0.680</strong>, rank 288.</p>
+
+    <h3>Tuning tree size</h3>
+    <figure>
+      <div class="chart-box"><canvas id="chLeaves" role="img" aria-label="Validation MAE by number of leaves for two learning rates"></canvas></div>
+      <figcaption>Validation MAE (rounded) by <code>num_leaves</code>. Each doubling gains about 0.003–0.004; larger trees also need fewer boosting rounds (511 leaves stop at 710). Compare points only within the same learning rate.</figcaption>
+    </figure>
+    <p>Halving the learning rate at 511 leaves gained only 0.0003 for almost twice the training time, so 0.1 was kept. Submission v3: leaderboard <strong>0.659</strong>, rank 121.</p>
+
+    <h3>Seed ensemble</h3>
+    <p>With <code>feature_fraction</code> and <code>bagging_fraction</code> at 0.8, models trained with different seeds make different errors that partly cancel out. Without randomness, changing the seed gives almost the same model and averaging is useless.</p>
+    <figure>
+      <div class="chart-box"><canvas id="chSeeds" role="img" aria-label="Single model versus ensemble MAE as the number of seeds grows"></canvas></div>
+      <figcaption>The ensemble beats every single model; the second model brings the largest gain. Predictions are <strong>averaged first, then rounded</strong> — rounding first throws away each model’s fractional information.</figcaption>
+    </figure>
+    <p>Submission v4: leaderboard <strong>0.6532</strong>, rank <strong>72 / 665</strong>.</p>
+  </section>
+
+  <!-- 06 FAILURES -->
+  <section class="block" id="failures">
+    <div class="num">06</div>
+    <h2>Two failed experiments</h2>
+    <p>Both were removed, and both taught more than most successes.</p>
+
+    <h3>Station × stop target encoding — leakage through small groups</h3>
+    <p>Hypothesis: the same station behaves differently by line and direction, which <code>arret</code> partly captures. I added the mean target per (station, stop) pair.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Version</th><th class="n">Stopping round</th><th class="n">MAE</th><th class="n">MAE rounded</th></tr></thead>
+        <tbody>
+          <tr class="best"><td>Without the feature</td><td class="n">1054</td><td class="n">0.6735</td><td class="n">0.661</td></tr>
+          <tr><td>With it, no smoothing</td><td class="n">517</td><td class="n">0.6778</td><td class="n">0.672</td></tr>
+          <tr><td>With it, smoothing m = 50</td><td class="n">469</td><td class="n">0.6758</td><td class="n">0.669</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>Diagnosis:</strong> each row’s own answer is part of its group mean. 772 of the 1,477 pairs have fewer than 30 rows; with one row, the “feature” <em>is</em> the label. Smoothing — (n × group mean + m × global mean) / (n + m) — confirmed the diagnosis (0.672 → 0.669) but still lost to having no feature. LightGBM already sees both columns and learns their interaction itself.</p>
+
+    <h3>Daily average — better locally, worse on the leaderboard</h3>
+    <p>Hypothesis: some days the whole network struggles. I added the same-day mean of <code>p0q2</code> (features only, no labels).</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Version</th><th class="n">Local</th><th class="n">Leaderboard</th></tr></thead>
+        <tbody>
+          <tr class="best"><td>v1, without daily mean</td><td class="n">0.661</td><td class="n">0.680</td></tr>
+          <tr><td>v2, with daily mean</td><td class="n">0.655 ↓</td><td class="n">0.693 ↑</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>I tested the explanations one at a time instead of “fixing” by intuition:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Hypothesis</th><th>Test</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Test days have few rows, so the daily mean is noisy</td><td>Same trained model; recompute the daily mean on only 860 random rows per validation day</td><td>0.6549 vs 0.6551 — <strong>ruled out</strong></td></tr>
+          <tr><td>Test values fall outside the training range</td><td>Compare feature distributions</td><td>Slightly more negative (winter) but within range — <strong>mostly ruled out</strong></td></tr>
+          <tr><td>Wrong number of rounds at submission</td><td>Check the training call</td><td>Correct — <strong>ruled out</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>The root cause was never confirmed. The most likely explanation is that day-level features are fragile on a test set of only 24 days. Decision: <strong>the leaderboard is the final judge</strong>; the feature was removed and work moved to lower-risk tuning.</p>
+  </section>
+
+  <!-- 07 RULER -->
+  <section class="block" id="ruler">
+    <div class="num">07</div>
+    <h2>A better ruler: multi-window validation</h2>
+    <p>After v4, remaining improvements were in the 0.001–0.003 range, and a single validation split could no longer separate them from luck: the learning-rate change differed by 0.0003, and the daily-mean feature had already fooled the local score once. Before any new feature, I needed a more precise measuring tool.</p>
+
+    <h3>Design choices</h3>
+    <ul>
+      <li><strong>Expanding, not sliding windows.</strong> The final model is trained on all data from April 3rd, so every validation fold trains from April 3rd as well. Whether old data is stale is a separate question, tested later as its own experiment.</li>
+      <li><strong>3 windows × 15 days.</strong> A validation window does not need to be as long as the test set: 15 days already hold about 110,000 rows. Shorter windows leave 46 days of training for the first fold, about half the data.</li>
+      <li><strong>Label-based features recomputed per window.</strong> Station target statistics use only that window’s training part; row-level features are shared.</li>
+    </ul>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Window</th><th>Validation dates</th><th class="n">Train rows</th><th class="n">Validation rows</th><th class="n">Share of data used to train</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td>Jun 26 → Sep 15</td><td class="n">338,844</td><td class="n">112,202</td><td class="n">≈ 51%</td></tr>
+          <tr><td>2</td><td>Sep 18 → Oct 6</td><td class="n">451,046</td><td class="n">103,785</td><td class="n">≈ 68%</td></tr>
+          <tr><td>3</td><td>Oct 9 → Nov 10</td><td class="n">554,831</td><td class="n">112,433</td><td class="n">≈ 83%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Harder exam, or weaker model?</h3>
+    <figure>
+      <div class="chart-box"><canvas id="chWindows" role="img" aria-label="Predict-zero baseline versus model MAE in each validation window"></canvas></div>
+      <figcaption>Window 1 scores much worse than window 3, but the “predict 0” baseline is also much worse there. The relative improvement is stable at about 28% in every window: the exam is harder, the model is not weaker. Absolute scores across windows are not comparable — compare experiments <em>within</em> a window.</figcaption>
+    </figure>
+
+    <h3>Measuring the ruler’s own error</h3>
+    <p>Changing only the seed (1 → 2) moved the 3-window average by <strong>0.0006</strong>, and window 3 alone by 0.001. That is pure noise, so it defines the bar. From here on, an experiment is kept only if:</p>
+    <ol>
+      <li>the 3-window average MAE improves by at least <strong>0.001</strong>;</li>
+      <li><strong>no window gets worse</strong>;</li>
+      <li>window 3, closest to the test period, gets particular attention.</li>
+    </ol>
+    <p>The whole pipeline — split, station statistics, training, scoring, out-of-fold predictions — was wrapped in one function so each experiment is a single call. Saving out-of-fold predictions let me test rounding offsets and blends in seconds, without retraining.</p>
+  </section>
+
+  <!-- 08 EXPERIMENTS -->
+  <section class="block" id="experiments">
+    <div class="num">08</div>
+    <h2>Eight experiments with the new ruler</h2>
+    <figure>
+      <div class="chart-box tall"><canvas id="chExperiments" role="img" aria-label="Change in MAE for eight experiments, average over three windows and window 3"></canvas></div>
+      <figcaption>Change in MAE in thousandths (×10⁻³); negative is better. The dashed lines mark ±1, the noise bar. Only three experiments improved the average beyond noise without hurting any window.</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Experiment</th><th>Idea</th><th class="n">Avg. change</th><th class="n">Window 3</th><th>Decision</th></tr></thead>
+        <tbody>
+          <tr><td>Rounding offset c = 0.1</td><td>Shift the rounding threshold</td><td class="n">−0.0002</td><td class="n">+0.0017</td><td><span class="tag drop">Dropped</span></td></tr>
+          <tr><td><code>num_leaves</code> 1023</td><td>Double tree size again</td><td class="n">−0.0020</td><td class="n">−0.0005</td><td><span class="tag keep">Kept</span></td></tr>
+          <tr><td><code>min_data_in_leaf</code> = 100</td><td>Regularise small leaves</td><td class="n">−0.0009</td><td class="n">−0.0000</td><td><span class="tag keep">Kept</span></td></tr>
+          <tr><td>CatBoost blend (90/10)</td><td>A different model family</td><td class="n">−0.0001</td><td class="n">−0.0008</td><td><span class="tag drop">Dropped</span></td></tr>
+          <tr><td>Station stability</td><td>Target std and zero-rate per station</td><td class="n">−0.0012</td><td class="n">−0.0003</td><td><span class="tag keep">Kept</span></td></tr>
+          <tr><td>Station × stop, OOF</td><td>Leak-free target encoding by day folds</td><td class="n">+0.0005</td><td class="n">+0.0004</td><td><span class="tag drop">Dropped</span></td></tr>
+          <tr><td>Time decay (half-life 120)</td><td>Down-weight older days</td><td class="n">−0.0004</td><td class="n">−0.0012</td><td><span class="tag drop">Dropped</span></td></tr>
+          <tr><td>p/q shape features</td><td>Min, max, std, sign counts</td><td class="n">+0.0006</td><td class="n">−0.0004</td><td><span class="tag drop">Dropped</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>What the experiments showed</h3>
+    <ul>
+      <li><strong>The ruler stopped a false improvement.</strong> The rounding offset looked slightly better on average, but later windows preferred c = 0 and the test period is later still.</li>
+      <li><strong>Out-of-fold encoding fixes leakage, not information.</strong> The station × stop feature went from −0.011 to roughly neutral, but added nothing a 1,023-leaf tree could not already learn.</li>
+      <li><strong>Beware of after-the-fact stories.</strong> I first explained the time-decay result by “summer holiday data” — the training set has no July or August data at all. A second tempting pattern (p0q2 equals the target two stops earlier) matched at exactly the rate of chance (~27%) and could not even be paired in the test set.</li>
+      <li><strong>Window 3 barely moves.</strong> With 555,000 training rows, structure tuning helps mainly the earlier, data-poorer windows.</li>
+    </ul>
+  </section>
+
+  <!-- 09 RESULTS -->
+  <section class="block" id="results">
+    <div class="num">09</div>
+    <h2>Submissions</h2>
+    <figure>
+      <div class="chart-box"><canvas id="chLeaderboard" role="img" aria-label="Leaderboard MAE for each submission v0 to v6"></canvas></div>
+      <figcaption>Leaderboard MAE by submission, with the top-15% (rank 100) and top-5% (rank 33) thresholds. v2 is the daily-mean experiment that improved locally but failed on the leaderboard.</figcaption>
+    </figure>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Version</th><th>Main change</th><th class="n">Local MAE</th><th class="n">Leaderboard MAE</th><th class="n">Rank / 665</th></tr></thead>
+        <tbody>
+          <tr><td>v0</td><td>Random forest + rounding</td><td class="n">0.712</td><td class="n">0.747</td><td class="n">479</td></tr>
+          <tr><td>v1</td><td>LightGBM L1 + new features</td><td class="n">0.661</td><td class="n">0.680</td><td class="n">288</td></tr>
+          <tr><td>v2</td><td>+ daily mean <span class="tag fail">Failed</span></td><td class="n">0.655</td><td class="n">0.693</td><td class="n">—</td></tr>
+          <tr><td>v3</td><td><code>num_leaves</code> = 511</td><td class="n">0.631</td><td class="n">0.659</td><td class="n">121</td></tr>
+          <tr><td>v4</td><td>Randomness + 5-seed ensemble</td><td class="n">0.627</td><td class="n">0.653</td><td class="n">72</td></tr>
+          <tr><td>v5</td><td>1023 leaves + <code>min_data_in_leaf</code></td><td class="n">0.6467*</td><td class="n">0.6518</td><td class="n">56</td></tr>
+          <tr class="best"><td>v6</td><td>+ station stability, 10 seeds</td><td class="n">0.6455*</td><td class="n">0.6516</td><td class="n">54</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:14px;color:var(--muted)">* From v5 the local score is the 3-window average, not the single split used for v0–v4; the two are not directly comparable.</p>
+    <p><strong>The new ruler passed its first real test.</strong> For v5, the leaderboard gain (0.0014) fell between the window-3 gain (0.0005) and the 3-window average gain (0.0028), in the same direction. For v6, the leaderboard moved only 0.0002 — consistent with window 3 moving only 0.0003.</p>  </section>
+
+  <!-- 10 LESSONS -->
+  <section class="block" id="lessons">
+    <div class="num">10</div>
+    <h2>Lessons learned</h2>
+    <ol class="lessons">
+      <li><strong>Align the objective with the metric.</strong> Rounding (0.764 → 0.712) and the L1 loss (0.681 → 0.661) were the two largest jumps — bigger than any feature.</li>
+      <li><strong>Make validation look like the test.</strong> Test dates are all in the future, so split by time and by whole days.</li>
+      <li><strong>Build the ruler before running experiments.</strong> When gains are around 0.001, measure noise first and judge with several windows.</li>
+      <li><strong>Consistency beats the average.</strong> A change that helps on average but hurts one window is not reliable.</li>
+      <li><strong>Small groups leak labels.</strong> Check group sizes before target encoding; smooth or use out-of-fold encoding.</li>
+      <li><strong>The leaderboard is the final judge.</strong> Drop what fails there, and record why.</li>
+      <li><strong>Test hypotheses, don’t tell stories.</strong> Two plausible explanations were refuted by a few seconds of data checks.</li>
+      <li><strong>Know when to stop.</strong> Five of eight experiments did nothing: the data’s information was largely used up.</li>
+    </ol>
+
+    <h3>Limits and next steps</h3>
+    <ul>
+      <li>Only six historical deviations, the station and the stop position are available; recent leaderboard gains are close to leaderboard noise (about 20,000 test rows).</li>
+      <li>Why the daily-mean feature failed on the leaderboard is still unexplained.</li>
+      <li>A final run with learning rate 0.05 and 20 seeds might add 0.0003–0.0008.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="back-btn" href="index.html#projects">← ALL PROJECTS</a>  </div>
+</footer>
+
+<script>
+(function () {
+  if (typeof Chart === "undefined") return;
+
+  var BLUE = "#3567A8", ROSE = "#C46A78", GRAY = "#9A9AA2", INK2 = "#5E5E66", GRID = "#EEEEF1";
+  Chart.defaults.font.family = "'Work Sans', system-ui, sans-serif";
+  Chart.defaults.font.size = 13;
+  Chart.defaults.color = INK2;
+  Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.plugins.legend.position = "top";
+  Chart.defaults.plugins.legend.align = "start";
+  Chart.defaults.plugins.legend.labels.boxWidth = 12;
+  Chart.defaults.plugins.legend.labels.boxHeight = 12;
+  Chart.defaults.plugins.tooltip.backgroundColor = "#2B2B30";
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.interaction = { mode: "index", intersect: false };
+
+  function axis(title, extra) {
+    var a = { grid: { color: GRID }, border: { display: false }, ticks: { color: INK2 } };
+    if (title) a.title = { display: true, text: title, color: INK2 };
+    for (var k in extra) a[k] = extra[k];
+    return a;
+  }
+  function line(label, data, color, extra) {
+    var d = { label: label, data: data, borderColor: color, backgroundColor: color, borderWidth: 2, pointRadius: 4, pointHoverRadius: 6, tension: 0 };
+    for (var k in extra) d[k] = extra[k];
+    return d;
+  }
+
+  // num_leaves
+  new Chart(document.getElementById("chLeaves"), {
+    type: "line",
+    data: {
+      labels: ["15", "31", "63", "127", "255", "511"],
+      datasets: [
+        line("Learning rate 0.05", [0.655, 0.661, 0.655, 0.643, null, null], ROSE),
+        line("Learning rate 0.1", [null, null, null, 0.638, 0.635, 0.631], BLUE)
+      ]
+    },
+    options: {
+      spanGaps: false,
+      scales: { x: axis("num_leaves", { grid: { display: false } }), y: axis("Validation MAE (rounded)", { suggestedMin: 0.625, suggestedMax: 0.665 }) },
+      plugins: { tooltip: { callbacks: { label: function (c) { return c.parsed.y == null ? null : c.dataset.label + ": " + c.parsed.y.toFixed(3); } } } }
+    }
+  });
+
+  // seeds
+  new Chart(document.getElementById("chSeeds"), {
+    type: "line",
+    data: {
+      labels: ["1", "2", "3", "4", "5"],
+      datasets: [
+        line("Single model (seed n)", [0.6289, 0.6286, 0.6292, 0.6286, 0.6280], GRAY, { borderDash: [5, 4] }),
+        line("Ensemble of n models", [0.6289, 0.6274, 0.6273, 0.6269, 0.6267], BLUE)
+      ]
+    },
+    options: {
+      scales: { x: axis("Number of models", { grid: { display: false } }), y: axis("Validation MAE (rounded)", { suggestedMin: 0.626, suggestedMax: 0.630, ticks: { color: INK2, callback: function (v) { return v.toFixed(4); } } }) },
+      plugins: { tooltip: { callbacks: { label: function (c) { return c.dataset.label + ": " + c.parsed.y.toFixed(4); } } } }
+    }
+  });
+
+  // windows
+  new Chart(document.getElementById("chWindows"), {
+    type: "bar",
+    data: {
+      labels: ["Window 1 (Jun 26)", "Window 2 (Sep 18)", "Window 3 (Oct 9)"],
+      datasets: [
+        { label: "Predict 0 everywhere", data: [0.9559, 0.9081, 0.8556], backgroundColor: GRAY, borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 48 },
+        { label: "Model (511 leaves)", data: [0.6871, 0.6485, 0.6130], backgroundColor: BLUE, borderRadius: 4, borderSkipped: "bottom", maxBarThickness: 48 }
+      ]
+    },
+    options: {
+      datasets: { bar: { categoryPercentage: 0.6, barPercentage: 0.9 } },
+      scales: { x: axis(null, { grid: { display: false } }), y: axis("MAE", { min: 0 }) },
+      plugins: { tooltip: { callbacks: {
+        label: function (c) { return c.dataset.label + ": " + c.parsed.y.toFixed(4); },
+        footer: function (items) { var rel = [28.1, 28.6, 28.3][items[0].dataIndex]; return "Relative improvement: " + rel + "%"; }
+      } } }
+    }
+  });
+
+  // experiments (thousandths)
+  var expLabels = ["Rounding offset c=0.1", "num_leaves 1023", "min_data_in_leaf 100", "CatBoost blend 90/10", "Station stability", "Station × stop (OOF)", "Time decay (half-life 120)", "p/q shape features"];
+  var avg = [-0.2, -2.0, -0.85, -0.1, -1.2, 0.5, -0.4, 0.6];
+  var w3 = [1.7, -0.5, -0.02, -0.8, -0.3, 0.4, -1.2, -0.4];
+  var noiseLine = { id: "noise", afterDatasetsDraw: function (chart) {
+    var x = chart.scales.x, a = chart.chartArea, ctx = chart.ctx;
+    ctx.save(); ctx.strokeStyle = "#8E8E94"; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    [-1, 1].forEach(function (v) { var px = x.getPixelForValue(v); ctx.beginPath(); ctx.moveTo(px, a.top); ctx.lineTo(px, a.bottom); ctx.stroke(); });
+    ctx.restore();
+  } };
+  new Chart(document.getElementById("chExperiments"), {
+    type: "bar",
+    data: {
+      labels: expLabels,
+      datasets: [
+        { label: "Average over 3 windows", data: avg, backgroundColor: BLUE, borderRadius: 4, maxBarThickness: 16 },
+        { label: "Window 3 only", data: w3, backgroundColor: ROSE, borderRadius: 4, maxBarThickness: 16 }
+      ]
+    },
+    plugins: [noiseLine],
+    options: {
+      indexAxis: "y",
+      interaction: { mode: "index", intersect: false, axis: "y" },
+      datasets: { bar: { categoryPercentage: 0.7, barPercentage: 0.9 } },
+      scales: {
+        x: axis("Change in MAE (×10⁻³) — negative is better", { min: -2.5, max: 2.5 }),
+        y: axis(null, { grid: { display: false } })
+      },
+      plugins: { tooltip: { callbacks: { label: function (c) { var v = c.parsed.x; return c.dataset.label + ": " + (v > 0 ? "+" : "") + (v / 1000).toFixed(4); } } } }
+    }
+  });
+
+  // leaderboard
+  var lb = [0.747, 0.680, 0.693, 0.659, 0.6532, 0.6518, 0.6516];
+  var ranks = ["479", "288", "—", "121", "72", "56", "54"];
+  new Chart(document.getElementById("chLeaderboard"), {
+    type: "line",
+    data: {
+      labels: ["v0", "v1", "v2", "v3", "v4", "v5", "v6"],
+      datasets: [
+        line("Leaderboard MAE", lb, BLUE, {
+          pointRadius: 5, pointHoverRadius: 7,
+          pointBackgroundColor: lb.map(function (_, i) { return i === 2 ? ROSE : BLUE; }),
+          pointBorderColor: lb.map(function (_, i) { return i === 2 ? ROSE : BLUE; }),
+          pointStyle: lb.map(function (_, i) { return i === 2 ? "rectRot" : "circle"; })
+        }),
+        line("Top 15% (rank 100): 0.6562", lb.map(function () { return 0.6562; }), GRAY, { borderDash: [6, 4], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0 }),
+        line("Top 5% (rank 33): 0.6495", lb.map(function () { return 0.6495; }), "#5E5E66", { borderDash: [2, 3], borderWidth: 1.5, pointRadius: 0, pointHoverRadius: 0 })
+      ]
+    },
+    options: {
+      scales: { x: axis("Submission", { grid: { display: false } }), y: axis("Leaderboard MAE", { suggestedMin: 0.64, suggestedMax: 0.75 }) },
+      plugins: { tooltip: { filter: function (i) { return i.datasetIndex === 0; }, callbacks: {
+        label: function (c) { return "MAE " + c.parsed.y.toFixed(4) + " · rank " + ranks[c.dataIndex]; },
+        footer: function (items) { return items[0].dataIndex === 2 ? "Failed: better locally, worse on the leaderboard" : ""; }
+      } } }
+    }
+  });
+})();
+</script>
+</body>
+</html>

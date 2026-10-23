@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Market Share Executive Cockpit — Xuan</title>
+<meta name="description" content="Case study: executive dashboard and brand market-share analysis on BigQuery and Looker Studio — layered SQL model, data-quality fixes, CR5 and HHI.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Work+Sans:wght@400;500&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  :root {
+    --ink: #2B2B30;
+    --ink-2: #4A4A52;
+    --body: #5E5E66;
+    --muted: #74747C;
+    --heading: #8E8E94;
+    --line: #F0F0F2;
+    --chip: #F2F2F4;
+    --hero-bg: #F4F4F5;
+    --pink: #FBE3E3;
+    --photo: #C9CDD3;
+    --code-bg: #F7F7F8;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: #FFFFFF; color: var(--body); font-family: 'Work Sans', system-ui, sans-serif; font-size: 16px; line-height: 1.7; }
+  a { color: var(--ink-2); }
+  a:hover { color: var(--ink); }
+
+  /* ---------- header band ---------- */
+  .band { background: linear-gradient(180deg, #9AA5B1 0%, #BFC3CC 55%, #EED9DC 100%); padding: 0 0 72px; }
+  .band-inner { max-width: 1120px; margin: 0 auto; padding: 32px 48px 0; }
+  nav.top { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 32px; font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.24em; }
+  nav.top a { color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+  .hero-card { margin-top: 56px; background: #FFFFFF; padding: 56px 56px 48px; display: flex; flex-direction: column; gap: 22px; }
+  .kicker { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.24em; color: var(--muted); }
+  h1 { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 56px; line-height: 1.15; color: var(--heading); }
+  .lede { margin: 0; font-family: 'Poppins', sans-serif; font-size: 18px; font-weight: 500; line-height: 1.6; color: var(--body); max-width: 760px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 5px 12px; border-radius: 999px; background: var(--chip); font-size: 12px; color: var(--body); }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 26px; background: var(--pink); color: var(--ink); font-family: 'Poppins', sans-serif; font-size: 14px; font-weight: 500; letter-spacing: 0.2em; text-decoration: none; }
+  .btn.ghost { background: var(--hero-bg); }
+  .btn svg { width: 18px; height: 18px; }
+
+  /* ---------- layout ---------- */
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 48px; }
+  section.block { padding: 72px 0 8px; }
+  h2 { margin: 0 0 8px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 44px; line-height: 1.2; color: var(--heading); }
+  .section-label { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.24em; color: var(--ink); margin-bottom: 18px; }
+  h3 { margin: 0 0 6px; font-family: 'Poppins', sans-serif; font-size: 21px; font-weight: 500; color: var(--ink-2); }
+  p { margin: 0 0 16px; max-width: 760px; }
+  strong { font-weight: 500; color: var(--ink); }
+  code { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.86em; background: var(--chip); padding: 1px 6px; border-radius: 4px; color: var(--ink-2); }
+
+  /* stats */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin: 28px 0 8px; }
+  .stat { background: var(--hero-bg); padding: 22px 24px; }
+  .stat-label { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.2em; color: var(--muted); }
+  .stat-value { font-family: 'Poppins', sans-serif; font-size: 36px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+  .stat-delta { font-size: 14px; color: var(--ink-2); }
+  .stat.accent { background: var(--pink); }
+
+  /* questions */
+  ol.questions { margin: 16px 0 0; padding: 0; list-style: none; counter-reset: q; display: grid; gap: 14px; max-width: 820px; }
+  ol.questions li { counter-increment: q; display: flex; gap: 18px; align-items: baseline; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+  ol.questions li::before { content: counter(q, decimal-leading-zero); font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.12em; color: var(--heading); min-width: 28px; }
+
+  /* figure */
+  figure { margin: 28px 0 0; }
+  figure img { width: 100%; height: auto; display: block; border: 1px solid #E6E6EA; }
+  figcaption { margin-top: 10px; font-size: 13px; color: var(--muted); }
+
+  /* findings */
+  .findings { display: grid; gap: 0; margin-top: 20px; }
+  .finding { display: flex; flex-wrap: wrap; gap: 8px 48px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+  .finding-title { flex: 1 1 260px; font-family: 'Poppins', sans-serif; font-size: 19px; font-weight: 500; color: var(--ink-2); }
+  .finding-body { flex: 1.6 1 380px; min-width: 0; font-size: 15px; }
+  .finding-body p { margin: 0; }
+
+  /* architecture svg */
+  .diagram { margin-top: 24px; background: var(--hero-bg); padding: 28px; }
+  .diagram svg { display: block; width: 100%; height: auto; }
+
+  /* steps */
+  .steps { position: relative; margin-top: 28px; }
+  .steps::before { content: ""; position: absolute; left: 5px; top: 30px; bottom: 30px; width: 1px; background: #DADADF; }
+  .step { position: relative; padding: 22px 0 26px 40px; border-bottom: 1px solid var(--line); }
+  .step::before { content: ""; position: absolute; left: 0; top: 32px; width: 11px; height: 11px; border-radius: 50%; background: #FFFFFF; border: 2px solid var(--heading); }
+  .step.key::before { background: var(--pink); border-color: var(--ink-2); }
+  .step-num { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.16em; color: var(--ink); }
+  .step h3 { margin-top: 4px; }
+  .pfr { display: grid; grid-template-columns: 110px 1fr; gap: 6px 16px; margin: 14px 0 0; max-width: 860px; font-size: 15px; }
+  .pfr dt { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.18em; color: var(--muted); padding-top: 4px; }
+  .pfr dd { margin: 0; }
+  pre { margin: 14px 0 0; max-width: 860px; background: var(--code-bg); border-left: 3px solid var(--photo); padding: 16px 18px; overflow-x: auto; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 13px; line-height: 1.6; color: var(--ink-2); }
+  pre .c { color: var(--muted); }
+  pre .k { color: #6B4E9B; }
+  .tag { display: inline-block; margin-left: 10px; padding: 2px 10px; border-radius: 999px; background: var(--pink); font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.12em; color: var(--ink); vertical-align: middle; }
+
+  /* tables */
+  .table-wrap { margin-top: 20px; overflow-x: auto; max-width: 900px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th { text-align: left; font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.18em; color: var(--muted); padding: 10px 16px 10px 0; border-bottom: 1px solid #DADADF; }
+  td { padding: 12px 16px 12px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td:first-child { font-family: 'Poppins', sans-serif; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+  td.num { font-variant-numeric: tabular-nums; }
+
+  /* lists */
+  ul.clean { margin: 12px 0 0; padding: 0; list-style: none; max-width: 820px; }
+  ul.clean li { position: relative; padding: 8px 0 8px 22px; }
+  ul.clean li::before { content: ""; position: absolute; left: 0; top: 19px; width: 8px; height: 8px; border-radius: 50%; background: var(--photo); }
+
+  .two-col { display: flex; flex-wrap: wrap; gap: 24px 48px; margin-top: 8px; }
+  .two-col > div { flex: 1 1 380px; min-width: 0; }
+
+  /* footer */
+  footer { margin-top: 96px; background: linear-gradient(180deg, #FFFFFF 0%, #EED9DC 100%); padding: 56px 0 64px; }
+  .foot { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 24px; }
+  .signature { font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.24em; color: var(--ink); }
+
+  @media (max-width: 720px) {
+    body { font-size: 15px; }
+    .band-inner { padding: 20px 16px 0; }
+    nav.top { font-size: 12px; letter-spacing: 0.16em; }
+    .hero-card { margin-top: 28px; padding: 32px 22px; }
+    h1 { font-size: 38px; }
+    .lede { font-size: 16px; }
+    .wrap { padding: 0 16px; }
+    section.block { padding-top: 52px; }
+    h2 { font-size: 34px; }
+    .diagram { padding: 14px; overflow-x: auto; }
+    .diagram svg { min-width: 680px; }
+    .step { padding-left: 32px; }
+    .pfr { grid-template-columns: 1fr; gap: 2px; }
+    .pfr dd { margin-bottom: 10px; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+
+<header class="band">
+  <div class="band-inner">
+    <nav class="top" aria-label="Main">
+      <a href="index.html#projects">← ALL PROJECTS</a>
+      <a href="https://github.com/ChloeXP/market-share-analysis" target="_blank" rel="noopener">GITHUB</a>
+    </nav>
+
+    <div class="hero-card">
+      <div class="kicker">CASE STUDY · DATA ANALYSIS · BI DASHBOARD</div>
+      <h1>Market Share Executive Cockpit</h1>
+      <p class="lede">An executive dashboard built on a public e-commerce dataset with BigQuery and Looker Studio — from a layered SQL model to brand market-share analysis. Along the way, I found and fixed three data issues that would have misled any reader of the numbers.</p>
+      <div class="chips">
+        <span class="chip">BigQuery · GoogleSQL</span>
+        <span class="chip">Looker Studio</span>
+        <span class="chip">Layered data modelling</span>
+        <span class="chip">Window functions · CTEs</span>
+        <span class="chip">CR5 · HHI</span>
+        <span class="chip">Data quality</span>
+      </div>
+      <div class="actions">
+        <a class="btn" href="https://github.com/ChloeXP/market-share-analysis" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.610c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.910 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.770a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+          VIEW THE SQL
+        </a>
+        <a class="btn ghost" href="#process">SEE THE PROCESS</a>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- ===================== OVERVIEW ===================== -->
+  <section class="block" id="overview">
+    <div class="section-label">01 · THE BRIEF</div>
+    <h2>Three questions for leadership</h2>
+    <p>The goal was a one-page cockpit a manager can read in five seconds — and an analysis that goes beyond revenue, into how competitive each product market really is.</p>
+    <ol class="questions">
+      <li><span>How is the business growing, and what drives the growth — <strong>more customers or bigger baskets</strong>?</span></li>
+      <li><span>Where does revenue come from — <strong>which categories</strong> carry the business?</span></li>
+      <li><span>Inside each category, is the brand market <strong>dominated by a few leaders, or fragmented</strong>?</span></li>
+    </ol>
+  </section>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <section class="block" id="dashboard">
+    <div class="section-label">02 · THE RESULT</div>
+    <h2>The dashboard</h2>
+    <figure>
+      <img src="market-share-dashboard.png" alt="Market Share Executive Cockpit dashboard: three KPI cards with year-over-year change, a weekly revenue trend since 2019, a revenue-mix bar chart by category and a brand-concentration table with a heatmap on CR5." width="1220" height="942" loading="lazy">
+      <figcaption>Read top-left to bottom-right: KPIs with year-over-year change → long-term trend → composition. Every chart title states its conclusion, because the dashboard is published as a static image, without tooltips.</figcaption>
+    </figure>
+  </section>
+
+  <!-- ===================== FINDINGS ===================== -->
+  <section class="block" id="findings">
+    <div class="section-label">03 · WHAT THE DATA SAYS</div>
+    <h2>Key findings</h2>
+    <p>Period: the last 52 consolidated weeks (Oct 13, 2025 – Oct 11, 2026), compared with the prior year.</p>
+
+    <div class="stats">
+      <div class="stat"><div class="stat-label">REVENUE</div><div class="stat-value">$2.9M</div><div class="stat-delta">+77.2% YoY</div></div>
+      <div class="stat"><div class="stat-label">ORDERS</div><div class="stat-value">34.1k</div><div class="stat-delta">+75.9% YoY</div></div>
+      <div class="stat accent"><div class="stat-label">AVERAGE ORDER VALUE</div><div class="stat-value">$86.3</div><div class="stat-delta">+0.7% YoY — flat</div></div>
+    </div>
+
+    <div class="findings">
+      <div class="finding">
+        <div class="finding-title">Growth is volume-driven</div>
+        <div class="finding-body"><p>Revenue growth comes almost entirely from more orders; the average basket barely moved. Acquisition works — the next lever is basket size: cross-selling and bundles.</p></div>
+      </div>
+      <div class="finding">
+        <div class="finding-title">Revenue is diversified</div>
+        <div class="finding-body"><p>The top three categories — Outerwear, Jeans and Sweaters — make up only <strong>32%</strong> of revenue. The next seven each weigh between 4% and 6%: no single category is critical.</p></div>
+      </div>
+      <div class="finding">
+        <div class="finding-title">Brand markets are fragmented</div>
+        <div class="finding-body"><p>Every top-10 category has an <strong>HHI below 500</strong> — far from the 1,800 threshold for "highly concentrated" in the US 2023 Merger Guidelines. Jeans is the most concentrated (top five brands ≈ 40%, leader ≈ 11%); Sweaters the least (≈ 13%). Concentrated categories call for partnerships with a few leading brands; fragmented ones compete on assortment and price, and are natural candidates for a private label.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ARCHITECTURE ===================== -->
+  <section class="block" id="architecture">
+    <div class="section-label">04 · HOW IT IS BUILT</div>
+    <h2>A layered model, one grain per layer</h2>
+    <p>Each layer does one job, and every SQL file states its <strong>grain</strong> — what one row represents. Most of the problems below were, at heart, grain problems.</p>
+
+    <div class="diagram">
+      <svg viewBox="0 0 900 470" role="img" aria-label="Data architecture: the public thelook_ecommerce dataset is frozen into four raw tables, cleaned into stg_orders, joined into int_order_line_enriched, then aggregated into three marts that feed Looker Studio.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8E8E94"/></marker>
+        </defs>
+        <g font-family="Poppins, sans-serif">
+          <!-- layer labels -->
+          <g font-size="11" font-weight="600" letter-spacing="2" fill="#74747C">
+            <text x="0" y="40">SOURCE</text>
+            <text x="0" y="118">RAW</text>
+            <text x="0" y="196">STAGING</text>
+            <text x="0" y="274">INTERMEDIATE</text>
+            <text x="0" y="370">MARTS</text>
+            <text x="0" y="452">BI</text>
+          </g>
+          <!-- source -->
+          <rect x="150" y="16" width="740" height="40" rx="2" fill="#FFFFFF" stroke="#C9CDD3"/>
+          <text x="520" y="41" text-anchor="middle" font-size="14" fill="#4A4A52">bigquery-public-data.thelook_ecommerce  ·  regenerated daily</text>
+          <line x1="520" y1="56" x2="520" y2="92" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <text x="532" y="79" font-size="11" fill="#74747C">one-off snapshot</text>
+          <!-- raw -->
+          <rect x="150" y="94" width="740" height="40" rx="2" fill="#FBE3E3" stroke="#C9CDD3"/>
+          <text x="520" y="119" text-anchor="middle" font-size="14" fill="#2B2B30">raw_orders · raw_order_items · raw_products · raw_users   (frozen tables)</text>
+          <line x1="520" y1="134" x2="520" y2="170" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <!-- stg -->
+          <rect x="150" y="172" width="740" height="40" rx="2" fill="#FFFFFF" stroke="#C9CDD3"/>
+          <text x="520" y="197" text-anchor="middle" font-size="14" fill="#4A4A52">stg_orders — cancelled and returned orders removed   ·   grain: order</text>
+          <line x1="520" y1="212" x2="520" y2="248" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <!-- int -->
+          <rect x="150" y="250" width="740" height="40" rx="2" fill="#FFFFFF" stroke="#C9CDD3"/>
+          <text x="520" y="275" text-anchor="middle" font-size="14" fill="#4A4A52">int_order_line_enriched — + category, brand, country   ·   grain: order line</text>
+          <!-- fan out -->
+          <path d="M520,290 L520,306 L270,306 L270,326" fill="none" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <path d="M520,306 L520,326" fill="none" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <path d="M520,306 L770,306 L770,326" fill="none" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <!-- marts -->
+          <g font-size="13">
+            <rect x="150" y="328" width="240" height="74" rx="2" fill="#FFFFFF" stroke="#C9CDD3"/>
+            <text x="270" y="352" text-anchor="middle" fill="#2B2B30" font-weight="500">mart_weekly_country_kpi</text>
+            <text x="270" y="372" text-anchor="middle" fill="#74747C" font-size="12">week × country</text>
+            <text x="270" y="390" text-anchor="middle" fill="#74747C" font-size="12">KPIs · AOV · trend</text>
+
+            <rect x="400" y="328" width="240" height="74" rx="2" fill="#FFFFFF" stroke="#C9CDD3"/>
+            <text x="520" y="352" text-anchor="middle" fill="#2B2B30" font-weight="500">mart_weekly_kpi</text>
+            <text x="520" y="372" text-anchor="middle" fill="#74747C" font-size="12">week × category × country</text>
+            <text x="520" y="390" text-anchor="middle" fill="#74747C" font-size="12">revenue mix</text>
+
+            <rect x="650" y="328" width="240" height="74" rx="2" fill="#FFFFFF" stroke="#C9CDD3"/>
+            <text x="770" y="352" text-anchor="middle" fill="#2B2B30" font-weight="500">mart_category_concentration</text>
+            <text x="770" y="372" text-anchor="middle" fill="#74747C" font-size="12">category · last 52 weeks</text>
+            <text x="770" y="390" text-anchor="middle" fill="#74747C" font-size="12">leader share · CR5 · HHI</text>
+          </g>
+          <!-- to BI -->
+          <path d="M270,402 L270,418 L520,418 M770,402 L770,418 L520,418 M520,402 L520,426" fill="none" stroke="#8E8E94" stroke-width="1.5"/>
+          <line x1="520" y1="418" x2="520" y2="428" stroke="#8E8E94" stroke-width="1.5" marker-end="url(#ah)"/>
+          <rect x="150" y="430" width="740" height="38" rx="2" fill="#4A4A52"/>
+          <text x="520" y="454" text-anchor="middle" font-size="14" fill="#FFFFFF">Looker Studio — Market Share Executive Cockpit</text>
+        </g>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ===================== PROCESS ===================== -->
+  <section class="block" id="process">
+    <div class="section-label">05 · THE PROCESS</div>
+    <h2>Problems found, and how I fixed them</h2>
+    <p>The first version of the dashboard looked fine at a glance. Each step below started from something that looked wrong, was diagnosed with data rather than assumptions, and ended with a fix in the model — not a cosmetic tweak in the BI tool.</p>
+
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">STEP 1</div>
+        <h3>Weeks stored as text</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>The week was a text label (<code>2026-W42</code>), parsed back into a date inside Looker. The year-crossing week was split into two rows.</dd>
+          <dt>CAUSE</dt><dd><code>%W</code> week numbers and ISO weeks disagree at year boundaries: Dec 30–31 and Jan 1–5 got two different labels for the same week.</dd>
+          <dt>FIX</dt><dd>A real <code>DATE</code> column in the warehouse, and a label <em>derived from it</em> (ISO year <code>%G</code> + ISO week <code>%V</code>), so the two can never disagree.</dd>
+        </dl>
+<pre><span class="k">DATE_TRUNC</span>(DATE(created_at), ISOWEEK)                           <span class="k">AS</span> week_start_date,  <span class="c">-- Monday of the ISO week</span>
+<span class="k">FORMAT_DATE</span>('%G-W%V', DATE_TRUNC(DATE(created_at), ISOWEEK))   <span class="k">AS</span> order_week        <span class="c">-- label derived from the date</span></pre>
+      </div>
+
+      <div class="step">
+        <div class="step-num">STEP 2</div>
+        <h3>A comb-shaped trend line</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>After switching to the date column, the line dropped to zero between every weekly point.</dd>
+          <dt>CAUSE</dt><dd>Looker drew weekly data on a daily axis and filled the six missing days with zeros.</dd>
+          <dt>FIX</dt><dd>Set the dimension's granularity to <strong>ISO Year Week</strong> instead of hiding the gaps in the style settings.</dd>
+        </dl>
+      </div>
+
+      <div class="step key">
+        <div class="step-num">STEP 3 <span class="tag">DATA MATURITY</span></div>
+        <h3>A +73% jump that wasn't real</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>The last complete week nearly doubled versus the week before.</dd>
+          <dt>DIAGNOSIS</dt><dd>I listed hypotheses (synthetic growth, future timestamps, a single anomalous day) and tested them. Weekly view: no future dates, every week complete. Daily view: orders stable at 170–200 a day, then growing <strong>30–60% per day over the last seven days</strong>. The source keeps back-filling recent days — those days are not consolidated yet.</dd>
+          <dt>FIX</dt><dd>Keep only ISO weeks that ended more than seven days before the latest date.</dd>
+        </dl>
+<pre><span class="c">-- daily diagnosis: single-day jump, or gradual ramp?</span>
+<span class="k">SELECT</span> DATE(created_at) <span class="k">AS</span> order_date, COUNT(DISTINCT order_id) <span class="k">AS</span> nb_orders
+<span class="k">FROM</span> int_order_line_enriched
+<span class="k">WHERE</span> DATE(created_at) >= DATE_SUB(CURRENT_DATE(), <span class="k">INTERVAL</span> 21 DAY)
+<span class="k">GROUP BY</span> 1 <span class="k">ORDER BY</span> 1;</pre>
+      </div>
+
+      <div class="step key">
+        <div class="step-num">STEP 4 <span class="tag">GRAIN MISMATCH</span></div>
+        <h3>Orders overstated by 41%</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>The KPI card showed 125.8k orders and an average order value of $61.6 — suspiciously low.</dd>
+          <dt>CAUSE</dt><dd>The mart's grain was <em>week × category × country</em>. An order with jeans and socks was counted once per category, so summing across categories double-counted it.</dd>
+          <dt>FIX</dt><dd>Count orders at their natural grain in a dedicated <em>week × country</em> mart, and compute AOV as a ratio of sums, never an average of averages.</dd>
+          <dt>CHECK</dt><dd>A reconciliation query: true orders <strong>89,105</strong> vs 125,789 (+41%); revenue identical in both marts to the cent. AOV was understated by ~30% ($61.6 → $86.9).</dd>
+        </dl>
+<pre><span class="k">SELECT</span>
+  (<span class="k">SELECT</span> SUM(total_orders)  <span class="k">FROM</span> mart_weekly_kpi)         <span class="k">AS</span> orders_category_grain,  <span class="c">-- 125,789</span>
+  (<span class="k">SELECT</span> SUM(total_orders)  <span class="k">FROM</span> mart_weekly_country_kpi) <span class="k">AS</span> orders_true,            <span class="c">--  89,105</span>
+  (<span class="k">SELECT</span> SUM(total_revenue) <span class="k">FROM</span> mart_weekly_kpi)         <span class="k">AS</span> revenue_a,              <span class="c">-- equal ...</span>
+  (<span class="k">SELECT</span> SUM(total_revenue) <span class="k">FROM</span> mart_weekly_country_kpi) <span class="k">AS</span> revenue_b;              <span class="c">-- ... to b</span></pre>
+      </div>
+
+      <div class="step key">
+        <div class="step-num">STEP 5 <span class="tag">REPRODUCIBILITY</span></div>
+        <h3>History that changed every day</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>Two days apart, with the same cutoff, totals for past weeks had changed.</dd>
+          <dt>CAUSE</dt><dd>The public dataset regenerates its history daily. Any number quoted in a report would stop matching the next morning.</dd>
+          <dt>FIX</dt><dd>A <strong>raw snapshot layer</strong>: the four source tables copied into frozen tables, with a <code>_snapshot_at</code> timestamp. The consolidation cutoff is anchored on the snapshot's latest date, not on today — otherwise it would keep sliding into unconsolidated days.</dd>
+        </dl>
+<pre><span class="k">AND</span> DATE(created_at) < (
+      <span class="c">-- cutoff anchored on the snapshot's latest date, not on CURRENT_DATE()</span>
+      <span class="k">SELECT</span> DATE_TRUNC(DATE_SUB(MAX(DATE(created_at)), <span class="k">INTERVAL</span> 7 DAY), ISOWEEK)
+      <span class="k">FROM</span> raw_orders
+    )</pre>
+      </div>
+
+      <div class="step">
+        <div class="step-num">STEP 6</div>
+        <h3>From revenue mix to real market share</h3>
+        <dl class="pfr">
+          <dt>INSIGHT</dt><dd>"Category revenue ÷ total revenue" is a <em>revenue mix</em>, not a market share. Market share is a brand's revenue within its category. Before choosing a chart, I explored each market's structure: 138 to 367 brands per category, leaders holding only 3–11%.</dd>
+          <dt>APPROACH</dt><dd>With markets this fragmented, ten short bars would say nothing. So concentration itself became the subject: leader, leader share, CR5 and HHI per category, over the last 52 weeks — computed with window functions.</dd>
+        </dl>
+<pre><span class="k">WITH</span> shares <span class="k">AS</span> (
+  <span class="k">SELECT</span> *,
+    revenue / SUM(revenue) <span class="k">OVER</span> (<span class="k">PARTITION BY</span> category)             <span class="k">AS</span> share,  <span class="c">-- brand share in its category</span>
+    ROW_NUMBER() <span class="k">OVER</span> (<span class="k">PARTITION BY</span> category <span class="k">ORDER BY</span> revenue DESC) <span class="k">AS</span> rnk
+  <span class="k">FROM</span> cat_brand
+)
+<span class="k">SELECT</span>
+  category,
+  MAX(IF(rnk = 1, brand, NULL))              <span class="k">AS</span> leader_brand,
+  SUM(IF(rnk <= 5, share, 0))                <span class="k">AS</span> cr5,           <span class="c">-- top-5 concentration ratio</span>
+  ROUND(10000 * SUM(POW(share, 2)))          <span class="k">AS</span> hhi,           <span class="c">-- Herfindahl-Hirschman Index</span>
+  RANK() <span class="k">OVER</span> (<span class="k">ORDER BY</span> SUM(revenue) DESC)   <span class="k">AS</span> revenue_rank
+<span class="k">FROM</span> shares
+<span class="k">GROUP BY</span> category;</pre>
+      </div>
+
+      <div class="step">
+        <div class="step-num">STEP 7</div>
+        <h3>A title contradicted by a small sample</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>The table title claimed no category exceeded an HHI of 1,000 — but "Suits" showed 1,294.</dd>
+          <dt>CAUSE</dt><dd>Tiny categories (one sold about $4k in a year) look concentrated only because a handful of orders decide the ranking.</dd>
+          <dt>FIX</dt><dd>A <code>revenue_rank</code> column in the mart and a filter on the top 10 categories by revenue; the title now states its scope and every number in it was re-checked.</dd>
+        </dl>
+      </div>
+
+      <div class="step">
+        <div class="step-num">STEP 8</div>
+        <h3>One page, three time windows</h3>
+        <dl class="pfr">
+          <dt>SYMPTOM</dt><dd>The revenue-mix chart and the concentration table listed different top-10 categories side by side.</dd>
+          <dt>CAUSE</dt><dd>KPIs and the mix covered the full history since 2019; the concentration table covered the last 52 weeks.</dd>
+          <dt>FIX</dt><dd>One period for every KPI and breakdown — the last 52 consolidated weeks, with a year-over-year comparison on the KPI cards. Only the trend chart keeps the full history, which is its purpose.</dd>
+        </dl>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ===================== METRICS & DESIGN ===================== -->
+  <section class="block" id="design">
+    <div class="section-label">06 · DEFINITIONS</div>
+    <h2>Metrics</h2>
+
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>METRIC</th><th>DEFINITION</th></tr></thead>
+        <tbody>
+          <tr><td>AOV</td><td>Revenue ÷ distinct orders — a ratio of sums, never an average of pre-computed averages</td></tr>
+          <tr><td>Revenue mix</td><td>Category revenue ÷ total revenue</td></tr>
+          <tr><td>Brand share</td><td>A brand's revenue in a category ÷ that category's revenue</td></tr>
+          <tr><td>CR5</td><td>Sum of the five largest brand shares in a category</td></tr>
+          <tr><td>HHI</td><td>Σ (brand share)² × 10,000 — uses every brand and weights large players more</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </section>
+
+  <!-- ===================== LIMITATIONS ===================== -->
+  <section class="block" id="limitations">
+    <div class="section-label">07 · HONEST LIMITS</div>
+    <h2>Limitations</h2>
+    <ul class="clean">
+      <li><strong>Synthetic data.</strong> thelook_ecommerce is generated: the growth rates and the recent acceleration reflect how the data is produced, not a real market. The project demonstrates the method.</li>
+      <li><strong>Share of this retailer's sales.</strong> "Market share" here means a brand's share within this retailer's category sales, not of the external market.</li>
+      <li><strong>Fixed period.</strong> Dashboard dates match the snapshot; refreshing the snapshot means updating them.</li>
+      <li><strong>Static publication.</strong> Built in the BigQuery sandbox, where tables expire after 60 days. The dashboard is published as an image; the SQL in the repository rebuilds everything from the public source.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <div class="signature">XUAN PENG · DATA ANALYST / AI</div>
+    <div class="actions">
+      <a class="btn ghost" href="index.html#projects">← ALL PROJECTS</a>
+      <a class="btn" href="https://github.com/ChloeXP/market-share-analysis" target="_blank" rel="noopener">GITHUB REPOSITORY</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

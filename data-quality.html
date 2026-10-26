@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Row-Level Data Provenance for pandas — Xuan</title>
+<meta name="description" content="Case study: capturing and composing row-level data provenance for pandas pipelines with sparse binary tensors.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Work+Sans:wght@400;500&family=Caveat:wght@500&display=swap">
+<style>
+  :root {
+    --ink: #2B2B30;
+    --ink-2: #4A4A52;
+    --body: #5E5E66;
+    --muted: #74747C;
+    --heading: #8E8E94;
+    --line: #F0F0F2;
+    --chip: #F2F2F4;
+    --hero-bg: #F4F4F5;
+    --pink: #FBE3E3;
+    --photo: #C9CDD3;
+    --accent-bg: #F7F5F3;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #FFFFFF; color: var(--body); font-family: 'Work Sans', system-ui, sans-serif; }
+  a { color: var(--body); }
+  a:hover { color: var(--ink); }
+
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- top bar ---------- */
+  .topbar { padding: 32px 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
+  .back { display: inline-flex; align-items: center; gap: 8px; font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.24em; text-transform: uppercase; color: var(--ink); text-decoration: none; min-height: 44px; }
+  .back:hover { color: var(--ink-2); }
+  nav.sub { display: flex; flex-wrap: wrap; gap: 12px 28px; font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; }
+  nav.sub a { color: var(--heading); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+  nav.sub a:hover { color: var(--ink); }
+
+  /* ---------- hero ---------- */
+  .hero { background: var(--hero-bg); padding: 56px 24px 48px; margin: 24px 0 0; }
+  .hero-inner { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+  .eyebrow { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.28em; text-transform: uppercase; color: var(--heading); }
+  h1 { margin: 0; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 44px; line-height: 1.25; color: var(--ink); }
+  .lede { font-family: 'Poppins', sans-serif; font-size: 17px; font-weight: 500; line-height: 1.7; color: var(--body); max-width: 680px; }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; }
+  .btn { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 22px; font-family: 'Poppins', sans-serif; font-size: 13px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; text-decoration: none; border-radius: 2px; }
+  .btn-primary { background: var(--pink); color: var(--ink); }
+  .btn-primary:hover { background: #F7CECE; }
+  .btn-ghost { background: #FFFFFF; color: var(--ink); border: 1px solid #DADADF; }
+  .btn-ghost:hover { background: #FAFAFB; }
+  .btn svg { width: 18px; height: 18px; }
+  .hero-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 5px 12px; border-radius: 999px; background: #FFFFFF; font-size: 12px; color: var(--body); }
+
+  /* ---------- key numbers banner ---------- */
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; padding: 36px 0; margin: 24px 0 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .stat { padding: 0 20px; text-align: center; border-right: 1px solid var(--line); }
+  .stat:last-child { border-right: none; }
+  .stat-num { font-family: 'Poppins', sans-serif; font-size: 38px; font-weight: 700; color: var(--ink); line-height: 1.1; }
+  .stat-unit { font-family: 'Poppins', sans-serif; font-size: 16px; font-weight: 500; color: var(--ink-2); margin-left: 2px; }
+  .stat-caption { margin-top: 10px; font-size: 13px; color: var(--body); line-height: 1.5; }
+  @media (max-width: 720px) { .stats { grid-template-columns: 1fr; } .stat { border-right: none; border-bottom: 1px solid var(--line); padding: 20px 0; } .stat:last-child { border-bottom: none; } }
+
+  /* ---------- content sections ---------- */
+  section.part { padding: 48px 0 8px; }
+  h2 { margin: 0 0 20px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 32px; color: var(--heading); }
+  h3 { margin: 28px 0 8px; font-family: 'Poppins', sans-serif; font-weight: 600; font-size: 18px; color: var(--ink-2); }
+  p { margin: 0 0 16px; font-size: 15px; line-height: 1.75; color: var(--body); }
+  p strong { font-weight: 500; color: var(--ink); }
+  ul { margin: 0 0 16px; padding-left: 20px; }
+  li { margin: 6px 0; font-size: 15px; line-height: 1.75; }
+  li strong { font-weight: 500; color: var(--ink); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: var(--chip); padding: 1px 6px; border-radius: 3px; color: var(--ink); }
+
+  /* operations table */
+  .ops { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0 24px; }
+  .ops th, .ops td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .ops th { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--heading); border-bottom: 1px solid #D5D5D9; }
+  .ops td:first-child { font-family: 'Poppins', sans-serif; font-weight: 500; color: var(--ink-2); white-space: nowrap; }
+
+  /* formula callout */
+  .formula { margin: 20px 0 24px; padding: 20px 24px; background: var(--accent-bg); border-left: 3px solid var(--pink); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; color: var(--ink); text-align: center; }
+  .formula em { font-style: italic; color: var(--ink-2); }
+
+  /* benchmarks table */
+  .bench { width: 100%; border-collapse: collapse; font-size: 14px; margin: 16px 0 24px; }
+  .bench th, .bench td { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .bench th { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--heading); border-bottom: 1px solid #D5D5D9; text-align: left; }
+  .bench td { color: var(--body); }
+  .bench td:first-child { font-family: 'Poppins', sans-serif; font-weight: 500; color: var(--ink-2); }
+  .bench td.num, .bench th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .bench td.hl { color: var(--ink); font-weight: 500; }
+
+  /* takeaway highlight */
+  .takeaway { margin: 24px 0 0; padding: 18px 22px; background: var(--pink); color: var(--ink); font-size: 15px; line-height: 1.7; border-radius: 2px; }
+  .takeaway strong { font-weight: 600; }
+
+  /* ---------- footer ---------- */
+  footer { margin-top: 72px; padding: 48px 24px; background: var(--hero-bg); }
+  .footer-inner { max-width: 920px; margin: 0 auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; }
+  .signature { font-family: 'Caveat', cursive; font-size: 38px; color: var(--ink-2); }
+  .footer-links { display: flex; flex-wrap: wrap; gap: 16px 28px; font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; }
+  .footer-links a { color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+  .footer-links a:hover { color: var(--ink-2); }
+
+  /* ---------- small screens ---------- */
+  @media (max-width: 720px) {
+    .wrap { padding: 0 16px; }
+    .hero { padding: 36px 16px 32px; }
+    h1 { font-size: 32px; }
+    .lede { font-size: 16px; }
+    h2 { font-size: 26px; }
+    .stat-num { font-size: 30px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <a class="back" href="index.html#projects" aria-label="Back to projects">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      Back to projects
+    </a>
+    <nav class="sub" aria-label="Portfolio sections">
+      <a href="index.html#projects">Projects</a>
+      <a href="index.html#experience">Experience</a>
+      <a href="index.html#about">About</a>
+    </nav>
+  </div>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="hero-inner">
+    <div class="eyebrow">Case Study · Data Quality · Sparse Tensors</div>
+    <h1>Row-Level Data Provenance for pandas Pipelines</h1>
+    <div class="lede">Capture the lineage of every data preparation step as a sparse binary tensor, then compose a whole pipeline into a single end-to-end tensor via boolean matrix multiplication &mdash; so one query answers &ldquo;which raw rows produced this final row&rdquo;.</div>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://github.com/ChloeXP/pandas-prov-data-quality" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
+        View on GitHub
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/ChloeXP/pandas-prov-data-quality#readme" target="_blank" rel="noopener">Read the README</a>
+    </div>
+    <div class="hero-chips">
+      <span class="chip">SciPy sparse (CSR, int8)</span>
+      <span class="chip">pandas</span>
+      <span class="chip">SMOTE from scratch</span>
+      <span class="chip">Boolean matrix multiplication</span>
+      <span class="chip">Fairness ML datasets</span>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+
+  <!-- KEY NUMBERS -->
+  <section class="stats" aria-label="Headline numbers">
+    <div class="stat">
+      <div><span class="stat-num">2 732</span><span class="stat-unit">&times;</span></div>
+      <div class="stat-caption">storage compression<br>on 32 k-row Census (1 GB &rarr; 384 KB)</div>
+    </div>
+    <div class="stat">
+      <div><span class="stat-num">&lt; 0.1</span><span class="stat-unit"> ms</span></div>
+      <div class="stat-caption">per lineage query, nearly<br>constant with dataset size</div>
+    </div>
+    <div class="stat">
+      <div><span class="stat-num">1</span><span class="stat-unit"> matmul</span></div>
+      <div class="stat-caption">to compose an N-step pipeline<br>into one end-to-end tensor</div>
+    </div>
+  </section>
+
+  <!-- THE PROBLEM -->
+  <section class="part">
+    <h2>The problem</h2>
+    <p>In a modern ML workflow, a raw dataset <strong>D<sub>0</sub></strong> rarely goes straight into training. It passes through a chain of operations &mdash; filtering, joining, SMOTE rebalancing, encodings &mdash; before producing the final <strong>D<sub>n</sub></strong>. Along the way, every row may be dropped, duplicated, joined, or synthesised from other rows.</p>
+    <p>When a model misbehaves &mdash; a biased prediction, a GDPR request, an AI Act audit &mdash; one essential question becomes very hard to answer: <strong>which rows of the raw dataset produced this specific final row?</strong> This is the question <em>data provenance</em> (or <em>data lineage</em>) answers.</p>
+    <p>The project, supervised by Prof. K.&nbsp;Belhajjame at Dauphine-PSL, asks for a minimal viable provenance system on pandas, covering four representative operations: Filter, Oversample, Merge and Append.</p>
+  </section>
+
+  <!-- WHAT I BUILT -->
+  <section class="part">
+    <h2>What I built</h2>
+    <p>A single Python module, <code>prov.py</code>, exposes two classes:</p>
+    <ul>
+      <li><strong>ProvenanceTensor</strong> &mdash; holds a list of <code>scipy.sparse.csr_matrix</code> tensors plus pandas index metadata, and provides <code>backward(i)</code>, <code>forward(j)</code> and <code>compose_chain([&hellip;])</code> methods.</li>
+      <li><strong>Prov</strong> &mdash; a namespace of static methods, one per operation, that run the pandas call <em>and</em> build the matching tensor in parallel.</li>
+    </ul>
+    <p>User-facing code barely changes: <code>output_df, prov = Prov.filter(df, df["age"] &gt;= 25)</code> gives you both the filtered frame and its lineage tensor in one call.</p>
+
+    <h3>The four operations</h3>
+    <table class="ops" aria-label="Supported operations">
+      <thead>
+        <tr><th>Operation</th><th>Category</th><th>How provenance is captured</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Prov.filter</td><td>Horizontal reduction</td><td>Exploits pandas&rsquo; preserved index labels.</td></tr>
+        <tr><td>Prov.append</td><td>Vertical fusion</td><td>Shifted-diagonal block, one per input dataset.</td></tr>
+        <tr><td>Prov.oversample</td><td>Horizontal augmentation (SMOTE)</td><td>SMOTE re-implemented to record <strong>both</strong> parents of every synthetic row.</td></tr>
+        <tr><td>Prov.merge</td><td>Relational fusion</td><td>Injects temporary tracker columns before merge, reads them back after.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- KEY DESIGN DECISIONS -->
+  <section class="part">
+    <h2>Key design decisions</h2>
+
+    <h3>1. One list format for all operations</h3>
+    <p>Every <code>ProvenanceTensor</code> stores its tensors as a <strong>list</strong> &mdash; length 1 for single-input ops, length N for multi-input ops. Downstream query code never has to branch on type: a single <code>for&nbsp;t&nbsp;in&nbsp;self.tensors</code> loop handles every case. The semantic difference between Append (disjunctive) and Merge (conjunctive) emerges from the <em>pattern</em> of non-zeros, not from a different data structure.</p>
+
+    <h3>2. SMOTE re-implemented from scratch</h3>
+    <p>The <code>imblearn</code> SMOTE does not expose which two parents were interpolated for each synthetic sample. Fitting an a-posteriori <em>nearest neighbour</em> as a &ldquo;parent&rdquo; is simple but mathematically wrong &mdash; the closest point need not be one of the two true parents. For a provenance project, that compromise is self-defeating. So I rewrote SMOTE in about thirty lines and recorded the two actual parents explicitly, giving a mathematically faithful tensor.</p>
+
+    <h3>3. Tracker-column injection for Merge</h3>
+    <p>Pandas does not tell you which (left row, right row) pair produced each output row, and matching by key fails on 1-to-N or N-to-N joins. Before calling <code>pd.merge</code> I inject a temporary column holding the positional row index into each input. Pandas propagates these columns like any other, resolving every combinatorial case. After the merge I read them back to build the tensor, then drop them. All join types (inner, left, right, full outer) are handled uniformly thanks to pandas&rsquo; native NaN behaviour on unmatched rows.</p>
+
+    <h3>4. Positions, not labels, inside tensors</h3>
+    <p>Tensors address rows by position (0..n&minus;1), not by pandas index labels. This keeps chaining correct even when an intermediate DataFrame carries a non-contiguous index &mdash; the common case after any filter upstream.</p>
+  </section>
+
+  <!-- PIPELINE COMPOSITION -->
+  <section class="part">
+    <h2>Pipeline composition (Task&nbsp;2)</h2>
+    <p>For a linear pipeline <em>D<sub>0</sub></em> &rarr; [op<sub>1</sub>] &rarr; <em>D<sub>1</sub></em> &rarr; [op<sub>2</sub>] &rarr; <em>D<sub>2</sub></em> with tensors T<sub>1</sub> and T<sub>2</sub>, the question &ldquo;which raw row produced this final row&rdquo; reduces to &ldquo;does there exist a middle row k such that T<sub>2</sub>[i,k] = 1 and T<sub>1</sub>[k,j] = 1&rdquo;. That is exactly the non-zero condition of the matrix product:</p>
+
+    <div class="formula">T<sub>composed</sub> &nbsp;=&nbsp; <em>sign</em>( T<sub>2</sub> &middot; T<sub>1</sub> )</div>
+
+    <p>Boolean matrix multiplication over the semiring ({0, 1}, &or;, &and;). SciPy&rsquo;s sparse matmul handles the computation natively; the result is binarised. The operation is associative, so <code>compose_chain([T1, T2, &hellip;, Tn])</code> is just a fold-left. Multi-input upstream ops (Merge, Append) are composed branch-by-branch, preserving the list structure through the chain.</p>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="part">
+    <h2>Results on three fairness-ML datasets</h2>
+    <p>I validated the module on three standard datasets, each with a 2-to-3-step pipeline (Filters + Oversample).</p>
+
+    <h3>Storage of the end-to-end composed tensor</h3>
+    <table class="bench" aria-label="Storage benchmarks">
+      <thead>
+        <tr><th>Dataset</th><th class="num">Shape</th><th class="num">nnz</th><th class="num">Dense</th><th class="num">Sparse</th><th class="num">Ratio</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Compass</td><td class="num">(3 972, 7 214)</td><td class="num">3 974</td><td class="num">28.65 MB</td><td class="num">35.8 KB</td><td class="num hl">801&times;</td></tr>
+        <tr><td>German</td><td class="num">(1 220, 1 000)</td><td class="num">1 591</td><td class="num">1.22 MB</td><td class="num">14.3 KB</td><td class="num hl">85&times;</td></tr>
+        <tr><td>Census</td><td class="num">(32 198, 32 561)</td><td class="num">42 639</td><td class="num">1 048 MB</td><td class="num">384 KB</td><td class="num hl">2 732&times;</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Query latency on the composed tensor</h3>
+    <table class="bench" aria-label="Query benchmarks">
+      <thead>
+        <tr><th>Dataset</th><th class="num">Backward (output &rarr; inputs)</th><th class="num">Forward (input &rarr; outputs)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Compass</td><td class="num">0.041 ms</td><td class="num">0.043 ms</td></tr>
+        <tr><td>German</td><td class="num">0.037 ms</td><td class="num">0.038 ms</td></tr>
+        <tr><td>Census</td><td class="num">0.036 ms</td><td class="num">0.129 ms</td></tr>
+      </tbody>
+    </table>
+    <p>Query time is <strong>nearly constant across dataset sizes</strong>, a direct consequence of CSR&rsquo;s <code>O(nnz_per_row)</code> row slicing &mdash; Census is 32 times larger than German but the backward query takes essentially the same time.</p>
+
+    <div class="takeaway">
+      <strong>End-to-end traceability demo &mdash;</strong>
+      on the Compass pipeline, synthetic row 3 970 (the first SMOTE sample) traces back in a single query to raw rows 2 788 and 1. Both correspond to African-American men aged 34, no prior convictions, recid&nbsp;=&nbsp;1 &mdash; the two actual samples SMOTE interpolated between.
+    </div>
+  </section>
+
+  <!-- LIMITATIONS -->
+  <section class="part">
+    <h2>Limitations &amp; next steps</h2>
+    <ul>
+      <li><strong>Scope.</strong> The framework covers identity-preserving / identity-changing operations. Value transformations (imputation, normalisation, one-hot encoding) are explicitly out of scope &mdash; column-level provenance would need a 4<sup>th</sup>-order tensor.</li>
+      <li><strong>Linear chains only.</strong> General DAG pipelines (two parallel filters that then merge) would require a graph-aware <code>compose_graph</code>. The &ldquo;list of tensors&rdquo; structure already paves the way for this extension.</li>
+      <li><strong>SMOTE performance.</strong> Brute-force k-NN is <code>O(m&sup2; &middot; d)</code>; on Census this runs in &sim;4 s. Swapping in <code>sklearn.neighbors.BallTree</code> would bring it down to <code>O(m log m &middot; d)</code>.</li>
+      <li><strong>Persistence.</strong> Tensors live in memory and export to <code>.npz</code>. A production backend would plug this into Parquet or DuckDB for cross-pipeline lineage queries at scale.</li>
+    </ul>
+  </section>
+
+  <!-- WHAT I LEARNED -->
+  <section class="part">
+    <h2>What I took away</h2>
+    <p>Technically, I now have a hands-on grip on sparse matrix formats, SMOTE internals, and a handful of pandas edge cases that caught me off-guard (index labels vs positions, merge propagation of extra columns, concat&rsquo;s positional semantics).</p>
+    <p>Methodologically, two lessons stuck. First, <strong>&ldquo;think the architecture through before writing code&rdquo; really pays off</strong> &mdash; the single &ldquo;always a list of tensors&rdquo; decision made every later extension nearly refactor-free. Second, <strong>mathematical correctness beats convenient APIs</strong> &mdash; choosing to re-implement SMOTE rather than approximate parents with <code>imblearn</code> is the kind of trade-off I now make deliberately in any audit-sensitive context.</p>
+  </section>
+
+</div>
+
+<footer>
+  <div class="footer-inner">
+    <div class="footer-links">
+      <a href="index.html#projects">&larr; Back to projects</a>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

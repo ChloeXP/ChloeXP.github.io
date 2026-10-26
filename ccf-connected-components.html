@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connected Components in Spark — Xuan</title>
+<meta name="description" content="Case study: the CCF MapReduce connected-components algorithm re-implemented in Apache Spark (PySpark and Scala, RDD and DataFrame) and benchmarked on graphs of up to 5.1 million edges. DataFrame about 3× faster than RDD.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Work+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --ink: #2B2B30;
+    --ink-2: #4A4A52;
+    --body: #5E5E66;
+    --muted: #74747C;
+    --heading: #8E8E94;
+    --line: #F0F0F2;
+    --chip: #F2F2F4;
+    --hero-bg: #F4F4F5;
+    --pink: #FBE3E3;
+    --pink-strong: #E8B4B8;
+    --photo: #C9CDD3;
+    --bar: #9AA5B1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #FFFFFF; color: var(--body); font-family: 'Work Sans', system-ui, sans-serif; line-height: 1.65; }
+  a { color: var(--ink-2); }
+  a:hover { color: var(--ink); }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 48px; }
+
+  /* top bar */
+  .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 32px; padding: 28px 0; }
+  .topbar a { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.22em; color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+  .topbar nav { display: flex; gap: 28px; flex-wrap: wrap; }
+
+  /* hero */
+  .hero { background: var(--hero-bg); padding: 56px 0 64px; }
+  .meta { font-size: 13px; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+  h1 { margin: 14px 0 18px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 52px; line-height: 1.15; color: var(--heading); }
+  .lead { font-family: 'Poppins', sans-serif; font-size: 18px; font-weight: 400; line-height: 1.7; color: var(--ink-2); max-width: 760px; margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+  .chip { padding: 5px 12px; border-radius: 999px; background: #FFFFFF; font-size: 12px; color: var(--body); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 40px; }
+  .stat { background: #FFFFFF; padding: 22px 20px; border-top: 3px solid var(--pink-strong); }
+  .stat .num { font-family: 'Poppins', sans-serif; font-size: 34px; font-weight: 600; color: var(--ink); line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .stat .lbl { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+
+  /* sections */
+  section.block { padding: 64px 0 8px; }
+  .kicker { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.24em; color: var(--ink); }
+  h2 { margin: 8px 0 24px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 40px; color: var(--heading); line-height: 1.2; }
+  h3 { font-family: 'Poppins', sans-serif; font-size: 19px; font-weight: 500; color: var(--ink-2); margin: 0 0 8px; }
+  p { margin: 0 0 16px; font-size: 16px; max-width: 760px; }
+  strong { font-weight: 500; color: var(--ink); }
+  .note { font-size: 13px; color: var(--muted); }
+
+  /* framework flow */
+  .flow { display: flex; flex-wrap: wrap; gap: 0; margin: 8px 0 12px; }
+  .flow-step { flex: 1 1 150px; position: relative; padding: 18px 18px 18px 18px; background: var(--hero-bg); border-right: 2px solid #FFFFFF; min-width: 0; }
+  .flow-step:last-child { background: var(--pink); }
+  .flow-step .n { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.16em; color: var(--muted); }
+  .flow-step .t { font-family: 'Poppins', sans-serif; font-size: 15px; font-weight: 600; color: var(--ink); margin-top: 4px; }
+  .flow-step .d { font-size: 13px; color: var(--body); margin-top: 6px; line-height: 1.5; }
+
+  /* steps */
+  .steps { border-top: 1px solid var(--line); }
+  .step { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 12px 40px; padding: 26px 0; border-bottom: 1px solid var(--line); }
+  .step .when { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.16em; color: var(--ink); padding-top: 4px; }
+  .step dl { margin: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 16px; }
+  .step dt { font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+  .step dd { margin: 0; font-size: 15px; }
+
+  /* charts */
+  .chart { margin: 8px 0 8px; }
+  .chart-title { font-family: 'Poppins', sans-serif; font-size: 14px; font-weight: 600; color: var(--ink-2); margin-bottom: 14px; }
+  .bar-row { display: grid; grid-template-columns: 210px minmax(0, 1fr) 118px; align-items: center; gap: 14px; padding: 5px 0; }
+  .bar-name { font-size: 14px; color: var(--ink-2); text-align: right; }
+  .bar-track { position: relative; height: 18px; background: var(--chip); border-radius: 2px; }
+  .bar-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--bar); border-radius: 2px; }
+  .bar-row.best .bar-fill { background: var(--pink-strong); }
+  .bar-row.course .bar-fill { background: #C9CDD3; }
+  .bar-row.rdd .bar-fill { background: #C9CDD3; }
+  .vbars { display: flex; align-items: flex-end; gap: 6px; height: 180px; border-bottom: 1px solid #DADADF; padding-top: 8px; }
+  .vbar { flex: 1 1 0; min-width: 0; background: var(--bar); border-radius: 2px 2px 0 0; position: relative; }
+  .vbar.best { background: var(--pink-strong); }
+  .vaxis { display: flex; gap: 6px; margin-top: 6px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .vaxis span { flex: 1 1 0; min-width: 0; text-align: center; }
+  code { font-size: 0.92em; background: var(--chip); padding: 1px 5px; border-radius: 3px; }
+  .bar-err { position: absolute; top: -3px; bottom: -3px; border-left: 2px solid var(--ink-2); border-right: 2px solid var(--ink-2); }
+  .bar-val { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .axis { display: grid; grid-template-columns: 210px minmax(0, 1fr) 118px; gap: 14px; margin-top: 6px; }
+  .axis-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--bar); }
+  .legend .l-best::before { background: var(--pink-strong); }
+  .legend .l-course::before { background: #C9CDD3; }
+  .legend .l-rdd::before { background: #C9CDD3; }
+
+  .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin-top: 36px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink); padding: 10px 8px; border-bottom: 2px solid var(--line); }
+  td { padding: 10px 8px; border-bottom: 1px solid var(--line); color: var(--body); font-variant-numeric: tabular-nums; }
+  td.num, th.num { text-align: right; }
+  tr.hl td { background: #FDF3F3; color: var(--ink); }
+
+  /* problems */
+  .problems { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .problem { background: var(--hero-bg); padding: 26px 24px; display: flex; flex-direction: column; gap: 10px; }
+  .problem .tag { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.2em; color: var(--muted); }
+  .problem p { font-size: 14px; margin: 0; }
+  .problem .fix { border-top: 1px solid #E4E4E8; padding-top: 10px; }
+
+  /* takeaway */
+  .takeaway { margin: 8px 0 0; padding: 28px 32px; background: var(--pink); font-family: 'Poppins', sans-serif; font-size: 20px; font-weight: 500; color: var(--ink); line-height: 1.5; }
+
+  ul.clean { margin: 0; padding-left: 20px; max-width: 760px; }
+  ul.clean li { margin-bottom: 10px; font-size: 15px; }
+
+  footer { margin-top: 80px; padding: 36px 0 56px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
+  footer a { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.22em; color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+
+  @media (max-width: 860px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .problems { grid-template-columns: minmax(0, 1fr); }
+    .two-col { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding: 0 16px; }
+    h1 { font-size: 36px; }
+    h2 { font-size: 30px; }
+    .lead { font-size: 16px; }
+    .hero { padding: 40px 0 44px; }
+    .stat .num { font-size: 28px; }
+    .step { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .step dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .step dd { margin-bottom: 8px; }
+    .bar-row, .axis { grid-template-columns: 112px minmax(0, 1fr) 54px; gap: 8px; }
+    .bar-name { font-size: 12px; }
+    .bar-val .sd { display: none; }
+    .vaxis span:nth-child(even) { visibility: hidden; }
+    .flow-step { flex-basis: 100%; border-right: 0; border-bottom: 2px solid #FFFFFF; }
+    .takeaway { font-size: 17px; padding: 22px 20px; }
+    table { font-size: 13px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <a href="index.html#projects">← BACK TO PROJECTS</a>
+    <nav aria-label="Sections">
+      <a href="#purpose">PURPOSE</a>
+      <a href="#steps">STEPS</a>
+      <a href="#results">RESULTS</a>
+      <a href="#problems">PROBLEMS</a>
+    </nav>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="meta">Distributed computing · Spark · Graph algorithms</div>
+    <h1>Connected Components at Scale in Spark</h1>
+    <p class="lead">Re-implementing CCF, a MapReduce algorithm for connected components (Kardes et al.), in Apache Spark: in PySpark and Scala, with RDDs and with DataFrames. Then benchmarking every version on web graphs growing from 10 to 5.1 million edges, to see what really drives performance: the data structure, the parallelism, or the algorithm variant.</p>
+    <div class="chips">
+      <span class="chip">Apache Spark 3.5</span>
+      <span class="chip">PySpark · Scala</span>
+      <span class="chip">RDD · DataFrame</span>
+      <span class="chip">MapReduce</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="num">5.1 M</div><div class="lbl">edges in the Google web graph (875,713 nodes)</div></div>
+      <div class="stat"><div class="num">2,746</div><div class="lbl">connected components found, identical across every implementation</div></div>
+      <div class="stat"><div class="num">≈ 3×</div><div class="lbl">DataFrame speed-up over RDD on the full graph</div></div>
+      <div class="stat"><div class="num">40 min → 7 s</div><div class="lbl">plain pandas vs PySpark RDD on 100 k edges</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- PURPOSE -->
+  <section class="block" id="purpose">
+    <div class="kicker">01 · PURPOSE</div>
+    <h2>Why connected components</h2>
+    <p>A connected component is a group of nodes that can all reach each other: a circle of friends in a social network, a ring of linked accounts in anti-money-laundering, or all the records that describe the same real person in record linkage. Once the graph no longer fits on one machine, the computation has to be distributed.</p>
+    <p>This was a two-person course project (Université Paris Dauphine-PSL, with Laure Boizeau). The brief: understand the CCF MapReduce algorithm, implement it in Spark with <strong>both RDDs and DataFrames</strong>, in <strong>both Python and Scala</strong>, and compare the versions on graphs of increasing size.</p>
+  </section>
+
+  <!-- FRAMEWORK -->
+  <section class="block" id="framework">
+    <div class="kicker">02 · THE ALGORITHM</div>
+    <h2>Everyone points to the smallest ID</h2>
+    <p>CCF repeats two MapReduce jobs until nothing changes. Think of a classroom where, each round, every student tells their friends the smallest student number they know. After a few rounds, everyone in the same group knows the group's smallest number: that number becomes the component ID.</p>
+    <div class="flow" role="list">
+      <div class="flow-step" role="listitem"><div class="n">MAP</div><div class="t">Both directions</div><div class="d">Each edge (u, v) is emitted as (u, v) and (v, u)</div></div>
+      <div class="flow-step" role="listitem"><div class="n">SHUFFLE</div><div class="t">Group neighbours</div><div class="d">One adjacency list per node</div></div>
+      <div class="flow-step" role="listitem"><div class="n">REDUCE</div><div class="t">CCF-Iterate</div><div class="d">Find the minimum, re-attach every neighbour to it, count new pairs</div></div>
+      <div class="flow-step" role="listitem"><div class="n">DEDUP</div><div class="t">CCF-Dedup</div><div class="d">Drop duplicate pairs before the next round</div></div>
+      <div class="flow-step" role="listitem"><div class="n">STOP</div><div class="t">Zero new pairs</div><div class="d">Every node points straight to its component's minimum</div></div>
+    </div>
+    <p class="note">Three variants were compared: Iterate only (no dedup), Iterate + Dedup ("standard"), and Iterate on a sorted neighbour list ("secondary sort").</p>
+  </section>
+
+  <!-- STEPS -->
+  <section class="block" id="steps">
+    <div class="kicker">03 · STEPS</div>
+    <h2>What we did, step by step</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="when">STEP 1 · LOAD &amp; CLEAN</div>
+        <dl>
+          <dt>Did</dt><dd>Loaded the SNAP web-Google (5.1 M edges) and web-NotreDame (1.5 M edges) graphs, stripped the comment header and cast node IDs to integers.</dd>
+          <dt>Result</dt><dd>5,105,039 edges, matching the file header. Scaling tests take the first N edges, from 10 to the full graph.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 2 · PANDAS BASELINE</div>
+        <dl>
+          <dt>Did</dt><dd>Wrote the algorithm in plain Python / pandas on one machine, with a dictionary standing in for the shuffle.</dd>
+          <dt>Why</dt><dd>To validate the logic first, and to measure what Spark actually buys.</dd>
+          <dt>Result</dt><dd>Fastest below about 1,000 edges, then explodes: <strong>about 40 minutes for 100 k edges</strong>.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 3 · PYSPARK RDD</div>
+        <dl>
+          <dt>Did</dt><dd><code>flatMap</code> → <code>distinct</code> → <code>groupByKey</code> → <code>flatMap</code>, with an accumulator counting new pairs; a <code>count()</code> action triggers each round before the counter is read.</dd>
+          <dt>Why</dt><dd>The closest mapping of the paper's MapReduce jobs.</dd>
+          <dt>Result</dt><dd>About 7 s for 100 k edges.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 4 · PYSPARK DATAFRAME</div>
+        <dl>
+          <dt>Did</dt><dd>Two versions: one with Python UDFs, one with built-in functions only (<code>collect_set</code>, <code>least</code> + <code>array_min</code>, <code>explode</code>); the sorted variant uses a window function.</dd>
+          <dt>Why</dt><dd>Built-in functions stay inside the JVM and can be optimised by Catalyst.</dd>
+          <dt>Result</dt><dd>The fastest structure on the full graphs.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 5 · SCALA</div>
+        <dl>
+          <dt>Did</dt><dd>Same three variants with RDDs and DataFrames, run in Docker with an Apache Toree kernel and in IntelliJ with sbt.</dd>
+          <dt>Result</dt><dd>Dedup effect clearly measured; the full-graph RDD run finished but took about 80 minutes (see problems).</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 6 · BENCHMARK</div>
+        <dl>
+          <dt>Did</dt><dd>Graph size from 10 to 5.1 M edges, RDD partitions from 1 to 30, two machines and three Spark configurations; small runs repeated 3 times. Every run logged to CSV and plotted in one analysis notebook.</dd>
+          <dt>Result</dt><dd>One traceable source for every number.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="block" id="results">
+    <div class="kicker">04 · RESULTS</div>
+    <h2>DataFrame vs RDD</h2>
+    <p><strong>Correctness check:</strong> after CCF, 872,967 edges remain, and 872,967 + 2,746 components = 875,713 = the number of nodes, as expected when every non-root node keeps exactly one edge to its root. The largest component holds 855,802 nodes (97.7%). Convergence takes 8–9 rounds.</p>
+
+    <div class="chart" role="img" aria-label="Bar chart of run time on the full Google graph: DataFrame 8.8 and 9.4 minutes, RDD 27.9 minutes for both variants">
+      <div class="chart-title">Full Google graph (5.1 M edges), PySpark, 16 GB / 8-core machine</div>
+      <div class="bar-row best"><div class="bar-name">DataFrame · standard</div><div class="bar-track"><div class="bar-fill" style="width:29.4%"></div></div><div class="bar-val">8.8 min</div></div>
+      <div class="bar-row "><div class="bar-name">DataFrame · sorted</div><div class="bar-track"><div class="bar-fill" style="width:31.4%"></div></div><div class="bar-val">9.4 min</div></div>
+      <div class="bar-row rdd"><div class="bar-name">RDD · standard</div><div class="bar-track"><div class="bar-fill" style="width:93.0%"></div></div><div class="bar-val">27.9 min</div></div>
+      <div class="bar-row rdd"><div class="bar-name">RDD · sorted</div><div class="bar-track"><div class="bar-fill" style="width:93.1%"></div></div><div class="bar-val">27.9 min</div></div>
+      <div class="axis" aria-hidden="true"><div></div><div class="axis-ticks"><span>0</span><span>10</span><span>20</span><span>30 min</span></div><div></div></div>
+      <div class="legend"><span class="l-best">fastest</span><span>DataFrame</span><span class="l-rdd">RDD</span></div>
+    </div>
+    <p class="note" style="margin-top:12px">Same pattern on NotreDame (1.5 M edges): 2.8 min with DataFrames vs 8.8–9.6 min with RDDs. On the smaller 8 GB machine, DataFrames were 4.6–8.5× faster.</p>
+
+    <div class="two-col">
+      <div>
+        <h3>Spark vs plain pandas</h3>
+        <table>
+          <thead><tr><th>Edges</th><th class="num">pandas</th><th class="num">RDD · 6 partitions</th></tr></thead>
+          <tbody>
+            <tr><td>100</td><td class="num">0.3 s</td><td class="num">2.1 s</td></tr>
+            <tr><td>1,000</td><td class="num">3.3 s</td><td class="num">3.0 s</td></tr>
+            <tr><td>10,000</td><td class="num">51 s</td><td class="num">3.9 s</td></tr>
+            <tr class="hl"><td>100,000</td><td class="num">2,296 s</td><td class="num">7.2 s</td></tr>
+            <tr><td>2,000,000</td><td class="num">—</td><td class="num">85 s</td></tr>
+          </tbody>
+        </table>
+        <p class="note" style="margin-top:10px">Spark's start-up cost only pays off once the graph passes about 1,000 edges.</p>
+      </div>
+      <div>
+        <h3>Effect of deduplication (Scala, 100 k edges)</h3>
+        <table>
+          <thead><tr><th>Variant</th><th class="num">DataFrame</th><th class="num">RDD</th></tr></thead>
+          <tbody>
+            <tr><td>Iterate only</td><td class="num">2.53 s</td><td class="num">16.6 s</td></tr>
+            <tr class="hl"><td>Iterate + Dedup</td><td class="num">1.31 s</td><td class="num">5.2 s</td></tr>
+            <tr><td>Sorted + Dedup</td><td class="num">1.24 s</td><td class="num">5.0 s</td></tr>
+          </tbody>
+        </table>
+        <p class="note" style="margin-top:10px">Dedup halves DataFrame time and cuts RDD time to a third; sorting adds nothing at this size.</p>
+      </div>
+    </div>
+
+    <div class="chart" style="margin-top:40px" role="img" aria-label="Column chart of mean run time by number of RDD partitions, from 1 to 30: lowest at 3 and 5 partitions, about 6.4 seconds, rising to 14.7 seconds at 30">
+      <div class="chart-title">Parallelism: mean run time (s) vs number of RDD partitions · Scala, 100 k edges, 3-CPU container</div>
+      <div class="vbars"><div class="vbar" style="height:60.7%" title="1 partitions: 9.1 s"></div><div class="vbar" style="height:44.0%" title="2 partitions: 6.6 s"></div><div class="vbar best" style="height:42.7%" title="3 partitions: 6.4 s"></div><div class="vbar" style="height:47.3%" title="4 partitions: 7.1 s"></div><div class="vbar best" style="height:42.7%" title="5 partitions: 6.4 s"></div><div class="vbar" style="height:47.3%" title="6 partitions: 7.1 s"></div><div class="vbar" style="height:47.3%" title="7 partitions: 7.1 s"></div><div class="vbar" style="height:44.7%" title="8 partitions: 6.7 s"></div><div class="vbar" style="height:48.0%" title="9 partitions: 7.2 s"></div><div class="vbar" style="height:50.7%" title="10 partitions: 7.6 s"></div><div class="vbar" style="height:53.3%" title="11 partitions: 8.0 s"></div><div class="vbar" style="height:58.7%" title="12 partitions: 8.8 s"></div><div class="vbar" style="height:59.3%" title="13 partitions: 8.9 s"></div><div class="vbar" style="height:58.0%" title="14 partitions: 8.7 s"></div><div class="vbar" style="height:58.7%" title="15 partitions: 8.8 s"></div><div class="vbar" style="height:59.3%" title="16 partitions: 8.9 s"></div><div class="vbar" style="height:60.0%" title="17 partitions: 9.0 s"></div><div class="vbar" style="height:65.3%" title="18 partitions: 9.8 s"></div><div class="vbar" style="height:75.3%" title="19 partitions: 11.3 s"></div><div class="vbar" style="height:73.3%" title="20 partitions: 11.0 s"></div><div class="vbar" style="height:76.7%" title="21 partitions: 11.5 s"></div><div class="vbar" style="height:75.3%" title="22 partitions: 11.3 s"></div><div class="vbar" style="height:74.0%" title="23 partitions: 11.1 s"></div><div class="vbar" style="height:82.7%" title="24 partitions: 12.4 s"></div><div class="vbar" style="height:82.7%" title="25 partitions: 12.4 s"></div><div class="vbar" style="height:85.3%" title="26 partitions: 12.8 s"></div><div class="vbar" style="height:90.0%" title="27 partitions: 13.5 s"></div><div class="vbar" style="height:89.3%" title="28 partitions: 13.4 s"></div><div class="vbar" style="height:89.3%" title="29 partitions: 13.4 s"></div><div class="vbar" style="height:98.0%" title="30 partitions: 14.7 s"></div></div>
+      <div class="vaxis" aria-hidden="true"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span><span>16</span><span>17</span><span>18</span><span>19</span><span>20</span><span>21</span><span>22</span><span>23</span><span>24</span><span>25</span><span>26</span><span>27</span><span>28</span><span>29</span><span>30</span></div>
+      <p class="note" style="margin-top:10px">Lowest at 3–5 partitions (6.4 s), close to the number of cores; beyond that, scheduling and shuffle-merge overhead grows almost linearly, to 14.7 s at 30.</p>
+    </div>
+
+    <div style="margin-top:32px">
+      <h3>Reading the results</h3>
+      <ul class="clean">
+        <li><strong>DataFrames win:</strong> Catalyst rewrites the plan and Tungsten runs it in compact binary form inside the JVM, while every PySpark RDD lambda ships data to a Python worker and back.</li>
+        <li><strong>Match partitions to cores:</strong> too few leaves cores idle, too many adds overhead. For large graphs, more partitions keep each one small enough for memory.</li>
+        <li><strong>Dedup is the cheapest optimisation</strong>, and its gain grows with the data, as the paper predicts. Secondary sorting only matters on far larger graphs.</li>
+      </ul>
+    </div>
+    <div class="takeaway" style="margin-top:32px">Data structure &gt; partitioning &gt; algorithm variant.</div>
+  </section>
+
+  <!-- PROBLEMS -->
+  <section class="block" id="problems">
+    <div class="kicker">05 · PROBLEMS &amp; FIXES</div>
+    <h2>What went wrong, and what we learned</h2>
+    <div class="problems">
+      <div class="problem">
+        <div class="tag">MEMORY</div>
+        <h3>The full graph would not finish</h3>
+        <p>On the 8 GB machine with default <code>local[*]</code> settings, both RDD and DataFrame runs on 5.1 M edges ran out of memory.</p>
+        <p class="fix"><strong>Fix:</strong> 50 RDD partitions made it finish (12 min), then explicit driver/executor memory, cores and <code>spark.sql.shuffle.partitions</code> brought it to 8.5 min.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">PARTITIONS</div>
+        <h3>One partition after the shuffle</h3>
+        <p><code>coalesce</code> was used to control DataFrame partitions, but the shuffle still produced a single partition, so the DataFrame ran single-threaded.</p>
+        <p class="fix"><strong>Fix:</strong> shuffle output is governed by <code>spark.sql.shuffle.partitions</code>, set in the session; a dedicated 1–30 partition sweep then picked the optimum.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">COUNTERS</div>
+        <h3>Accumulators inside UDFs</h3>
+        <p>The "new pairs" counter, the algorithm's stop condition, did not update reliably inside DataFrame UDFs.</p>
+        <p class="fix"><strong>Fix:</strong> counted new pairs with an aggregation instead (<code>sum(size(v) − 1)</code>, or a filtered <code>count()</code>), and in the RDD versions read the accumulator only after an action.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">ENVIRONMENT</div>
+        <h3>Running Scala Spark locally</h3>
+        <p>Scala notebooks needed a Toree kernel in Docker; in IntelliJ, recent JDK module restrictions and stack overflows broke Spark at start-up.</p>
+        <p class="fix"><strong>Fix:</strong> Toree installed in the container; <code>--add-opens</code>, <code>-Xss4m</code> and heap flags in <code>build.sbt</code>; CCF functions moved into a Scala <code>object</code> so closures serialise.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">REVIEW</div>
+        <h3>A comparison that was not like-for-like</h3>
+        <p>The first Scala DataFrame version collected the data to the driver and iterated on local collections: fast on small inputs, but not distributed.</p>
+        <p class="fix"><strong>Lesson:</strong> check where the work runs before comparing timings. A distributed rewrite was slower on small inputs and did not finish on the full graph.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">OPEN</div>
+        <h3>Scala RDD 10× slower than PySpark</h3>
+        <p>The full-graph Scala RDD run took about 80 minutes against 8.5 for PySpark, which does not reflect the languages themselves.</p>
+        <p class="fix"><strong>Likely cause:</strong> appending to an immutable <code>Array</code> inside the reducer copies it every time, O(n²) on an 855 k-node component. To confirm with an <code>ArrayBuffer</code> rewrite.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- NEXT -->
+  <section class="block" id="next">
+    <div class="kicker">06 · NEXT STEPS</div>
+    <h2>Improvement directions</h2>
+    <ul class="clean">
+      <li><strong>Lineage control:</strong> <code>persist()</code> each round and <code>checkpoint()</code> periodically, so iterations do not recompute earlier rounds or over-count accumulators.</li>
+      <li><strong>A true secondary sort</strong> with <code>repartitionAndSortWithinPartitions</code>, instead of sorting each list in memory after <code>groupByKey</code>.</li>
+      <li><strong>A fair Python vs Scala rerun</strong> on one machine and one configuration, with repeated full-graph runs.</li>
+      <li><strong>Baselines and scale:</strong> check against GraphFrames <code>connectedComponents()</code>, then run on a multi-node cluster with larger graphs and handle the skew of the giant component.</li>
+    </ul>
+    <p class="note" style="margin-top:24px">Tech: Apache Spark 3.5 · PySpark · Scala 2.13 · sbt · pandas · matplotlib · Docker (jupyter/all-spark-notebook + Apache Toree) · Kaggle. Data: Stanford SNAP web-Google and web-NotreDame. Reference: Kardes et al., <em>CCF: Fast and Scalable Connected Component Computation in MapReduce</em>.</p>
+  </section>
+
+  <footer>
+    <a href="index.html#projects">← BACK TO PROJECTS</a>
+    <a href="https://github.com/ChloeXP/ccf-connected-components-spark" target="_blank" rel="noopener">CODE ON GITHUB →</a>
+  </footer>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>French News Classification v1 — Xuan</title>
+<meta name="description" content="Case study: first version of a French news topic classifier. CamemBERT vs XLM-RoBERTa fine-tuned on Le Monde articles with keyword-generated labels across 13 topics. Best macro-F1 0.719.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Work+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --ink: #2B2B30;
+    --ink-2: #4A4A52;
+    --body: #5E5E66;
+    --muted: #74747C;
+    --heading: #8E8E94;
+    --line: #F0F0F2;
+    --chip: #F2F2F4;
+    --hero-bg: #F4F4F5;
+    --pink: #FBE3E3;
+    --pink-strong: #E8B4B8;
+    --photo: #C9CDD3;
+    --bar: #9AA5B1;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #FFFFFF; color: var(--body); font-family: 'Work Sans', system-ui, sans-serif; line-height: 1.65; }
+  a { color: var(--ink-2); }
+  a:hover { color: var(--ink); }
+
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 0 48px; }
+
+  /* top bar */
+  .topbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px 32px; padding: 28px 0; }
+  .topbar a { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.22em; color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+  .topbar nav { display: flex; gap: 28px; flex-wrap: wrap; }
+
+  /* version banner */
+  .banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 24px; background: var(--pink); padding: 14px 20px; margin-bottom: 24px; font-size: 14px; color: var(--ink); }
+  .banner a { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.18em; color: var(--ink); text-decoration: none; }
+
+  /* hero */
+  .hero { background: var(--hero-bg); padding: 56px 0 64px; }
+  .meta { font-size: 13px; letter-spacing: 0.12em; color: var(--muted); text-transform: uppercase; }
+  h1 { margin: 14px 0 18px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 52px; line-height: 1.15; color: var(--heading); }
+  .lead { font-family: 'Poppins', sans-serif; font-size: 18px; font-weight: 400; line-height: 1.7; color: var(--ink-2); max-width: 760px; margin: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+  .chip { padding: 5px 12px; border-radius: 999px; background: #FFFFFF; font-size: 12px; color: var(--body); }
+
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 40px; }
+  .stat { background: #FFFFFF; padding: 22px 20px; border-top: 3px solid var(--pink-strong); }
+  .stat .num { font-family: 'Poppins', sans-serif; font-size: 34px; font-weight: 600; color: var(--ink); line-height: 1.1; font-variant-numeric: tabular-nums; }
+  .stat .lbl { font-size: 13px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+
+  /* sections */
+  section.block { padding: 64px 0 8px; }
+  .kicker { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.24em; color: var(--ink); }
+  h2 { margin: 8px 0 24px; font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 40px; color: var(--heading); line-height: 1.2; }
+  h3 { font-family: 'Poppins', sans-serif; font-size: 19px; font-weight: 500; color: var(--ink-2); margin: 0 0 8px; }
+  p { margin: 0 0 16px; font-size: 16px; max-width: 760px; }
+  strong { font-weight: 500; color: var(--ink); }
+  .note { font-size: 13px; color: var(--muted); }
+  code { font-size: 0.92em; background: var(--chip); padding: 1px 5px; border-radius: 3px; }
+
+  /* framework flow */
+  .flow { display: flex; flex-wrap: wrap; gap: 0; margin: 8px 0 12px; }
+  .flow-step { flex: 1 1 150px; position: relative; padding: 18px; background: var(--hero-bg); border-right: 2px solid #FFFFFF; min-width: 0; }
+  .flow-step:last-child { background: var(--pink); }
+  .flow-step .n { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.16em; color: var(--muted); }
+  .flow-step .t { font-family: 'Poppins', sans-serif; font-size: 15px; font-weight: 600; color: var(--ink); margin-top: 4px; }
+  .flow-step .d { font-size: 13px; color: var(--body); margin-top: 6px; line-height: 1.5; }
+
+  /* steps */
+  .steps { border-top: 1px solid var(--line); }
+  .step { display: grid; grid-template-columns: 180px minmax(0, 1fr); gap: 12px 40px; padding: 26px 0; border-bottom: 1px solid var(--line); }
+  .step .when { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.16em; color: var(--ink); padding-top: 4px; }
+  .step dl { margin: 0; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px 16px; }
+  .step dt { font-size: 12px; font-weight: 500; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); padding-top: 3px; }
+  .step dd { margin: 0; font-size: 15px; }
+
+  /* grouped bar chart (per-class F1) */
+  .chart { margin: 8px 0 8px; }
+  .chart-title { font-family: 'Poppins', sans-serif; font-size: 14px; font-weight: 600; color: var(--ink-2); margin-bottom: 14px; }
+  .g-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 84px; align-items: center; gap: 14px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .g-name { font-size: 14px; color: var(--ink-2); text-align: right; line-height: 1.3; }
+  .g-name small { display: block; font-size: 11px; color: var(--muted); }
+  .g-bars { display: flex; flex-direction: column; gap: 3px; }
+  .g-track { position: relative; height: 10px; background: var(--chip); border-radius: 2px; }
+  .g-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; }
+  .g-fill.cam { background: var(--pink-strong); }
+  .g-fill.xlm { background: var(--bar); }
+  .g-val { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .g-val span { display: block; }
+  .g-val .x { color: var(--muted); }
+  .axis { display: grid; grid-template-columns: 150px minmax(0, 1fr) 84px; gap: 14px; margin-top: 6px; }
+  .axis-ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 12px; color: var(--muted); margin-top: 14px; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; background: var(--bar); }
+  .legend .l-cam::before { background: var(--pink-strong); }
+
+  .two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 40px; margin-top: 36px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { text-align: left; font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.08em; color: var(--ink); padding: 10px 8px; border-bottom: 2px solid var(--line); }
+  td { padding: 10px 8px; border-bottom: 1px solid var(--line); color: var(--body); font-variant-numeric: tabular-nums; }
+  td.num, th.num { text-align: right; }
+  tr.hl td { background: #FDF3F3; color: var(--ink); }
+
+  /* problems */
+  .problems { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+  .problem { background: var(--hero-bg); padding: 26px 24px; display: flex; flex-direction: column; gap: 10px; }
+  .problem .tag { font-family: 'Poppins', sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.2em; color: var(--muted); }
+  .problem p { font-size: 14px; margin: 0; }
+  .problem .fix { border-top: 1px solid #E4E4E8; padding-top: 10px; }
+
+  /* takeaway */
+  .takeaway { margin: 8px 0 0; padding: 28px 32px; background: var(--pink); font-family: 'Poppins', sans-serif; font-size: 20px; font-weight: 500; color: var(--ink); line-height: 1.5; }
+
+  ul.clean { margin: 0; padding-left: 20px; max-width: 760px; }
+  ul.clean li { margin-bottom: 10px; font-size: 15px; }
+
+  footer { margin-top: 80px; padding: 36px 0 56px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; }
+  footer a { font-family: 'Poppins', sans-serif; font-size: 12px; font-weight: 600; letter-spacing: 0.22em; color: var(--ink); text-decoration: none; min-height: 44px; display: inline-flex; align-items: center; }
+
+  @media (max-width: 860px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .problems { grid-template-columns: minmax(0, 1fr); }
+    .two-col { grid-template-columns: minmax(0, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .wrap { padding: 0 16px; }
+    h1 { font-size: 36px; }
+    h2 { font-size: 30px; }
+    .lead { font-size: 16px; }
+    .hero { padding: 40px 0 44px; }
+    .stat .num { font-size: 28px; }
+    .step { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+    .step dl { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .step dd { margin-bottom: 8px; }
+    .g-row, .axis { grid-template-columns: 96px minmax(0, 1fr) 40px; gap: 8px; }
+    .g-name { font-size: 12px; }
+    .flow-step { flex-basis: 100%; border-right: 0; border-bottom: 2px solid #FFFFFF; }
+    .takeaway { font-size: 17px; padding: 22px 20px; }
+    table { font-size: 13px; }
+    th, td { padding: 9px 5px; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <a href="index.html#projects">← BACK TO PROJECTS</a>
+    <nav aria-label="Sections">
+      <a href="#purpose">PURPOSE</a>
+      <a href="#steps">STEPS</a>
+      <a href="#results">RESULTS</a>
+      <a href="#lessons">LESSONS</a>
+    </nav>
+  </div>
+  <div class="banner">
+    <span>This is the <strong>first version</strong>, kept as submitted for the course. A full revision followed.</span>
+    <a href="french-news-classification.html">SEE THE REVISED VERSION →</a>
+  </div>
+</div>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="meta">NLP · Transformers · Fine-tuning</div>
+    <h1>French News Topic Classification — First Version</h1>
+    <p class="lead">Fine-tuning two pre-trained Transformer encoders, the French <strong>CamemBERT</strong> and the multilingual <strong>XLM-RoBERTa</strong>, to sort <em>Le Monde</em> articles into 13 topics. The dataset had no topic labels, so I built a keyword-based labelling system first, then trained, evaluated and compared both models end to end.</p>
+    <div class="chips">
+      <span class="chip">PyTorch</span>
+      <span class="chip">Hugging Face Transformers</span>
+      <span class="chip">CamemBERT · XLM-R</span>
+      <span class="chip">scikit-learn</span>
+      <span class="chip">Kaggle T4 GPU</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="num">0.719</div><div class="lbl">best test macro-F1 (CamemBERT, 5 epochs)</div></div>
+      <div class="stat"><div class="num">74.8%</div><div class="lbl">test accuracy on 373 held-out articles</div></div>
+      <div class="stat"><div class="num">13</div><div class="lbl">topics, labelled by a hand-written keyword rule</div></div>
+      <div class="stat"><div class="num">+3.3 pts</div><div class="lbl">macro-F1 for CamemBERT over XLM-R, with 2.5× fewer parameters</div></div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <!-- PURPOSE -->
+  <section class="block" id="purpose">
+    <div class="kicker">01 · PURPOSE</div>
+    <h2>The question</h2>
+    <p>Automatic topic classification is a basic need for any news archive: routing, recommendation, search. The course asked us to adapt a Transformer fine-tuning notebook to a new language and dataset.</p>
+    <p>I chose French press articles and framed one question: <strong>for a French-only task, does a model pre-trained on French beat a larger model pre-trained on 100 languages?</strong> CamemBERT (~110M parameters, French corpus) against XLM-RoBERTa (~270M parameters, 100 languages).</p>
+  </section>
+
+  <!-- FRAMEWORK -->
+  <section class="block" id="framework">
+    <div class="kicker">02 · APPROACH</div>
+    <h2>From raw articles to a model comparison</h2>
+    <div class="flow" role="list">
+      <div class="flow-step" role="listitem"><div class="n">1</div><div class="t">Data</div><div class="d">diverse_french_news, filtered to lemonde.fr</div></div>
+      <div class="flow-step" role="listitem"><div class="n">2</div><div class="t">Labels</div><div class="d">Keyword scoring over 13 topics</div></div>
+      <div class="flow-step" role="listitem"><div class="n">3</div><div class="t">Sampling</div><div class="d">Balanced subsample per class</div></div>
+      <div class="flow-step" role="listitem"><div class="n">4</div><div class="t">Fine-tuning</div><div class="d">Encoder + [CLS] head, AdamW</div></div>
+      <div class="flow-step" role="listitem"><div class="n">5</div><div class="t">Evaluation</div><div class="d">Macro-F1, per-class report, confusions</div></div>
+    </div>
+  </section>
+
+  <!-- STEPS -->
+  <section class="block" id="steps">
+    <div class="kicker">03 · STEPS</div>
+    <h2>What I did, step by step</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="when">STEP 1 · DATA</div>
+        <dl>
+          <dt>Did</dt><dd>Loaded <em>diverse_french_news</em> from Hugging Face and kept only <em>Le Monde</em> articles with a title, description and body.</dd>
+          <dt>Why</dt><dd>One newspaper means one editorial style, so differences between models are not blurred by source effects.</dd>
+          <dt>Result</dt><dd><strong>17,980 / 538 / 550</strong> articles for train / validation / test.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 2 · LABELS</div>
+        <dl>
+          <dt>Did</dt><dd>Defined 13 topics (Monde, Europe, Faits-divers, Politique, Société, Environnement, Sport, Culture, Éco/Conso, Santé, Sciences &amp; Tech, Météo, Jeux) with 21–32 keywords each, and scored every article: +3 per keyword in the title, +1 in the title or description.</dd>
+          <dt>Why</dt><dd>The dataset has no topic column. The title carries the editorial focus, so it gets more weight.</dd>
+          <dt>Result</dt><dd>Strong imbalance: <em>Monde</em> 22% and <em>Politique</em> 20% of training articles, <em>Jeux</em> only 1% — a 22:1 ratio.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 3 · SAMPLING</div>
+        <dl>
+          <dt>Did</dt><dd>Drew a balanced subsample: up to 384 training articles per class (4,784 in total), with the same rule applied to validation and test.</dd>
+          <dt>Why</dt><dd>Keep GPU time within a Kaggle session and stop the model from simply favouring the two largest classes.</dd>
+          <dt>Result</dt><dd>12 classes at 384 articles, <em>Jeux</em> capped at its 176 available; <strong>373</strong> test articles.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 4 · MODEL</div>
+        <dl>
+          <dt>Did</dt><dd>Wrapped each pre-trained encoder in a small classifier: the <code>[CLS]</code> embedding, dropout 0.3, then a linear layer to 13 classes. Input: title and description, up to 256 tokens.</dd>
+          <dt>Why</dt><dd>The same head on both encoders makes the comparison about the pre-training, not the architecture.</dd>
+          <dt>Result</dt><dd>One reusable <code>TransformerClassifier</code> plus shared <code>train_model</code> and <code>evaluate</code> functions.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 5 · TRAINING</div>
+        <dl>
+          <dt>Did</dt><dd>Fine-tuned both models with AdamW (lr 3e-5, batch 16): a first run of 3 epochs, then a second run of 5 epochs.</dd>
+          <dt>Why</dt><dd>The 3-epoch learning curves were still rising, with no sign of overfitting.</dd>
+          <dt>Result</dt><dd>CamemBERT's macro-F1 went from 0.690 to <strong>0.719</strong>, XLM-R's from 0.648 to 0.686.</dd>
+        </dl>
+      </div>
+      <div class="step">
+        <div class="when">STEP 6 · ANALYSIS</div>
+        <dl>
+          <dt>Did</dt><dd>Per-class precision / recall / F1, confusion matrices and the most frequent confusion pairs for each model.</dd>
+          <dt>Why</dt><dd>One accuracy figure hides which topics fail and why.</dd>
+          <dt>Result</dt><dd>The weakest classes are the smallest ones (<em>Météo</em>, <em>Jeux</em>), and most errors involve the catch-all <em>Monde</em> class.</dd>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- RESULTS -->
+  <section class="block" id="results">
+    <div class="kicker">04 · RESULTS</div>
+    <h2>CamemBERT vs XLM-RoBERTa</h2>
+
+    <table>
+      <thead><tr><th>Run</th><th>Model</th><th class="num hide-sm">Params</th><th class="num">Accuracy</th><th class="num">Macro-F1</th></tr></thead>
+      <tbody>
+        <tr><td>3 epochs</td><td>CamemBERT</td><td class="num hide-sm">110M</td><td class="num">73.5%</td><td class="num">0.690</td></tr>
+        <tr><td>3 epochs</td><td>XLM-RoBERTa</td><td class="num hide-sm">278M</td><td class="num">69.7%</td><td class="num">0.648</td></tr>
+        <tr class="hl"><td>5 epochs</td><td>CamemBERT</td><td class="num hide-sm">110M</td><td class="num">74.8%</td><td class="num">0.719</td></tr>
+        <tr><td>5 epochs</td><td>XLM-RoBERTa</td><td class="num hide-sm">278M</td><td class="num">72.4%</td><td class="num">0.686</td></tr>
+      </tbody>
+    </table>
+    <p class="note" style="margin-top:10px">Test set: 373 articles, one seed per run.</p>
+
+    <div class="chart" style="margin-top:40px" role="img" aria-label="Per-class test F1 for CamemBERT and XLM-RoBERTa after 5 epochs. Highest: Sport 0.95 and 0.90. Lowest: Météo 0.41 and 0.30, Jeux 0.33 and 0.22.">
+      <div class="chart-title">F1 by topic after 5 epochs (test support in grey)</div>
+      <!-- bar width = F1 * 100% -->
+      <div class="g-row"><div class="g-name">Sport<small>31</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:95%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:90%"></div></div></div><div class="g-val"><span>0.95</span><span class="x">0.90</span></div></div>
+      <div class="g-row"><div class="g-name">Environnement<small>11</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:91%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:82%"></div></div></div><div class="g-val"><span>0.91</span><span class="x">0.82</span></div></div>
+      <div class="g-row"><div class="g-name">Santé<small>41</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:88%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:80%"></div></div></div><div class="g-val"><span>0.88</span><span class="x">0.80</span></div></div>
+      <div class="g-row"><div class="g-name">Europe<small>21</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:84%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:79%"></div></div></div><div class="g-val"><span>0.84</span><span class="x">0.79</span></div></div>
+      <div class="g-row"><div class="g-name">Éco/Conso<small>36</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:81%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:74%"></div></div></div><div class="g-val"><span>0.81</span><span class="x">0.74</span></div></div>
+      <div class="g-row"><div class="g-name">Société<small>29</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:80%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:73%"></div></div></div><div class="g-val"><span>0.80</span><span class="x">0.73</span></div></div>
+      <div class="g-row"><div class="g-name">Culture<small>42</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:75%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:80%"></div></div></div><div class="g-val"><span>0.75</span><span class="x">0.80</span></div></div>
+      <div class="g-row"><div class="g-name">Sciences &amp; Tech<small>15</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:74%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:72%"></div></div></div><div class="g-val"><span>0.74</span><span class="x">0.72</span></div></div>
+      <div class="g-row"><div class="g-name">Faits-divers<small>42</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:71%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:79%"></div></div></div><div class="g-val"><span>0.71</span><span class="x">0.79</span></div></div>
+      <div class="g-row"><div class="g-name">Politique<small>42</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:68%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:76%"></div></div></div><div class="g-val"><span>0.68</span><span class="x">0.76</span></div></div>
+      <div class="g-row"><div class="g-name">Monde<small>42</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:53%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:55%"></div></div></div><div class="g-val"><span>0.53</span><span class="x">0.55</span></div></div>
+      <div class="g-row"><div class="g-name">Météo<small>14</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:41%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:30%"></div></div></div><div class="g-val"><span>0.41</span><span class="x">0.30</span></div></div>
+      <div class="g-row"><div class="g-name">Jeux<small>7</small></div><div class="g-bars"><div class="g-track"><div class="g-fill cam" style="width:33%"></div></div><div class="g-track"><div class="g-fill xlm" style="width:22%"></div></div></div><div class="g-val"><span>0.33</span><span class="x">0.22</span></div></div>
+      <div class="axis" aria-hidden="true"><div></div><div class="axis-ticks"><span>0</span><span>0.25</span><span>0.50</span><span>0.75</span><span>1.00</span></div><div></div></div>
+      <div class="legend"><span class="l-cam">CamemBERT</span><span>XLM-RoBERTa</span></div>
+    </div>
+
+    <div class="two-col">
+      <div>
+        <h3>Most frequent confusions</h3>
+        <table>
+          <thead><tr><th>True → predicted</th><th class="num">CamemBERT</th><th class="num">XLM-R</th></tr></thead>
+          <tbody>
+            <tr><td>Monde → Météo</td><td class="num">8</td><td class="num">12</td></tr>
+            <tr><td>Politique → Culture</td><td class="num">5</td><td class="num">—</td></tr>
+            <tr><td>Monde → Sciences &amp; Tech</td><td class="num">4</td><td class="num">4</td></tr>
+            <tr><td>Faits-divers → Monde</td><td class="num">—</td><td class="num">4</td></tr>
+          </tbody>
+        </table>
+        <p class="note" style="margin-top:10px">5-epoch runs; "—" means outside that model's top 5.</p>
+      </div>
+      <div>
+        <h3>Reading the results</h3>
+        <ul class="clean">
+          <li><strong>French pre-training paid off:</strong> CamemBERT led in both runs, on 9 of 13 topics, with 2.5× fewer parameters.</li>
+          <li><strong>Small classes fail first:</strong> <em>Météo</em> and <em>Jeux</em>, with 14 and 7 test articles, are the only topics below 0.5.</li>
+          <li><strong><em>Monde</em> is a catch-all:</strong> it appears in most confusion pairs, a first hint that the labels themselves were blurred.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="takeaway" style="margin-top:32px">A working end-to-end fine-tuning pipeline, and a first answer: CamemBERT &gt; XLM-R on French news.</div>
+  </section>
+
+  <!-- LESSONS -->
+  <section class="block" id="lessons">
+    <div class="kicker">05 · LESSONS</div>
+    <h2>What a later review found</h2>
+    <p>Coming back to this version, I questioned the numbers before trusting them. Three weaknesses stood out, and each one became a workstream of the <a href="french-news-classification.html">revised project</a>.</p>
+    <div class="problems">
+      <div class="problem">
+        <div class="tag">LABELS</div>
+        <h3>The ground truth was a heuristic</h3>
+        <p>The models were trained to imitate the keyword rule, not the real topic. Articles that matched no keyword silently defaulted to <em>Monde</em>, which explains its role in so many confusions.</p>
+        <p class="fix"><strong>In the revision:</strong> labels rebuilt from the editorial section in each URL. The keyword rule agreed with the editors on only 39% of articles.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">EVALUATION</div>
+        <h3>Too little evidence for the gap</h3>
+        <p>373 test articles, 7 of them for <em>Jeux</em>, and a single seed per model. A 2–3 point gap between two models is within the noise of such a setup.</p>
+        <p class="fix"><strong>In the revision:</strong> a 1,308-article test set, 3–5 seeds per setting and paired statistical tests.</p>
+      </div>
+      <div class="problem">
+        <div class="tag">CODE</div>
+        <h3>The second run did not do what it said</h3>
+        <p>The 5-epoch run set the training size to all 17,980 articles, but the data loaders were still built from the 4,784-article balanced sample. The gain came from extra epochs, not extra data.</p>
+        <p class="fix"><strong>In the revision:</strong> one <code>run_experiment(config)</code> function and every reported number generated from saved run logs.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:24px">Tech: Python · PyTorch · Hugging Face Transformers · scikit-learn · pandas · seaborn · Kaggle T4. Models: camembert-base, xlm-roberta-base.</p>
+  </section>
+
+  <footer>
+    <a href="index.html#projects">← BACK TO PROJECTS</a>
+    <a href="french-news-classification.html">REVISED VERSION →</a>
+    <a href="https://github.com/ChloeXP/french-news-classification-version-originale" target="_blank" rel="noopener">CODE ON GITHUB →</a>
+  </footer>
+</main>
+
+</body>
+</html>
